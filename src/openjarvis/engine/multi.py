@@ -45,6 +45,11 @@ class MultiEngine(InferenceEngine):
                     if owner is engine and self._model_key_map.get(model) == key
                 ]
             for model_id in model_ids:
+                # First claim wins: engines are ordered with the configured
+                # engine first, so a later catch-all engine (e.g. litellm,
+                # which echoes the default model) must not steal its models.
+                if model_id in model_map:
+                    continue
                 model_map[model_id] = engine
                 key_map[model_id] = key
         self._model_map = model_map

@@ -167,3 +167,16 @@ async def test_multi_routes_stream_full_by_model():
         result_b.append(chunk)
 
     assert result_b[0].content == "from B"
+
+
+def test_multi_engine_first_claim_wins():
+    """A later catch-all engine must not steal a model the primary owns."""
+    from unittest.mock import MagicMock
+
+    from openjarvis.engine.multi import MultiEngine
+
+    primary, catchall = MagicMock(), MagicMock()
+    primary.list_models.return_value = ["qwen3.5:9b", "qwen2.5:7b"]
+    catchall.list_models.return_value = ["qwen3.5:9b"]
+    multi = MultiEngine([("ollama", primary), ("litellm", catchall)])
+    assert multi._engine_for("qwen3.5:9b") is primary
