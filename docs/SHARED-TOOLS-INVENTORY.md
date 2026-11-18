@@ -1,6 +1,6 @@
 # Shared AI tools — installation inventory
 
-Updated 2026-11-18. `skill-installed` means instruction files, not proof every optional backend works. No automatic hooks, proxy routing, new billing or background model calls were enabled.
+Updated 2026-11-18 (Codex inventory, finished by Claude). `skill-installed` = active for both agents. `library` = downloaded at a pinned commit under `~/.openjarvis/shared-tools/library/` and indexed in the shared catalog; agents read a guide when a task needs it. Nothing downloaded was executed; no hooks, proxies, billing or accounts were enabled.
 
 | Name | Category | State | Detail |
 |---|---|---|---|
@@ -13,38 +13,38 @@ Updated 2026-11-18. `skill-installed` means instruction files, not proof every o
 | [Claudex](https://github.com/ed0ted/claudex) | coding | skill-installed | Same instruction files installed for Codex and Claude Code. Optional runtime/account requirements remain separate. |
 | [Inference Optimisation](https://github.com/sybil-solutions/inference-optimisation-skill) | coding | skill-installed | Same instruction files installed for Codex and Claude Code. Optional runtime/account requirements remain separate. |
 | [Superpowers](https://github.com/obra/superpowers) | coding | skill-installed | Same instruction files installed for Codex and Claude Code. Optional runtime/account requirements remain separate. |
-| Matt Pocock Skills | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Everything Claude Code (ECC) | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Karpathy Skills | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Addy Osmani Agent Skills | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| gstack | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| GSD | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| BMAD Method | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Claude Code Setup | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Matt Pocock Skills](https://github.com/mattpocock/skills) | coding | library | Downloaded at pinned commit; 39 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [Everything Claude Code (ECC)](https://github.com/affaan-m/ECC) | coding | library | Downloaded at pinned commit; 1087 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [Karpathy Skills](https://github.com/multica-ai/andrej-karpathy-skills) | coding | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: LOW 0/100. |
+| [Addy Osmani Agent Skills](https://github.com/addyosmani/agent-skills) | coding | library | Downloaded at pinned commit; 25 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [gstack](https://github.com/garrytan/gstack) | coding | library | Downloaded at pinned commit; 76 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [GSD](https://github.com/gsd-build/get-shit-done) | coding | library | Downloaded at pinned commit; 0 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) | coding | library | Downloaded at pinned commit; 36 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [Claude Code Setup](https://github.com/anthropics/claude-plugins-official) | coding | library | Downloaded at pinned commit; 57 skill files indexed. Read the guide when a task needs it; nothing was executed. |
 | Claude Automation Recommender | coding | existing-skill | Existing Codex skill and shared reviewed Claude plugin preserved. |
-| Claude Mods | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| TaskObserver | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Deep Project | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Deep Plan | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Deep Implement | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Morph | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| CodeBurn | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| DevSwarm | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
-| OpenCode | coding | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Claude Mods](https://github.com/karanb192/awesome-claude-code-mods) | coding | source-identified | Closest match: index of 8,000+ Claude Code mods with permissions shown. Exact video source unknown. |
+| TaskObserver | coding | unresolved | Still unresolved after searching GitHub; no confident match or substitute. |
+| [Deep Project](https://github.com/piercelamb/deep-project) | coding | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: LOW 18/100. |
+| [Deep Plan](https://github.com/piercelamb/deep-plan) | coding | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: LOW 18/100. |
+| [Deep Implement](https://github.com/piercelamb/deep-implement) | coding | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: MEDIUM 40/100 (auto-runs commands; review before use). |
+| Morph | coding | source-identified | Morph fast-apply is a hosted API (morphllm.com); no open repo. Not free-only safe. |
+| [CodeBurn](https://github.com/getagentseal/codeburn) | coding | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [DevSwarm](https://github.com/devswarm-ai/devswarm) | coding | source-identified | Parallel multi-agent coding environment; separate app. |
+| [OpenCode](https://github.com/anomalyco/opencode) | coding | source-identified | Open-source terminal coding agent; separate CLI install. |
 | [Obsidian Skills](https://github.com/obsidianmd/obsidian-skills) | knowledge | skill-installed | Same instruction files installed for Codex and Claude Code. Optional runtime/account requirements remain separate. |
 | [Claude Obsidian](https://github.com/AgriciDaniel/claude-obsidian) | knowledge | not-integrated | Source identified; runtime integration not installed or verified. A separate proxy/memory system could overlap Jarvis; no automatic hook or proxy enabled. |
 | [Obsidian Second Brain](https://github.com/eugeniughelbur/obsidian-second-brain) | knowledge | not-integrated | Source identified; runtime integration not installed or verified. A separate proxy/memory system could overlap Jarvis; no automatic hook or proxy enabled. |
 | [LLM Wiki SecondBrain](https://github.com/DimitrisLianos/LLM_Wiki_SecondBrain) | knowledge | not-integrated | Source identified; runtime integration not installed or verified. A separate proxy/memory system could overlap Jarvis; no automatic hook or proxy enabled. |
 | [Claude Mem](https://github.com/thedotmack/claude-mem) | knowledge | not-integrated | Source identified; runtime integration not installed or verified. A separate proxy/memory system could overlap Jarvis; no automatic hook or proxy enabled. |
-| Agent Reach | knowledge | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Understand Anything | knowledge | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Last 30 Days | knowledge | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Career Ops | knowledge | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Head Hunter | knowledge | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Context7 | knowledge | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Agent Reach](https://github.com/Panniantong/Agent-Reach) | knowledge | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: LOW 0/100. |
+| [Understand Anything](https://github.com/Egonex-AI/Understand-Anything) | knowledge | library | Downloaded at pinned commit; 9 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: CRITICAL 100/100 (credential access + anti-refusal text; do not activate). |
+| [Last 30 Days](https://github.com/mvanhorn/last30days-skill) | knowledge | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: scan timed out; not verified. |
+| [Career Ops](https://github.com/career-ops-hq/career-ops) | knowledge | library | Downloaded at pinned commit; 11 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| Head Hunter | knowledge | unresolved | Still unresolved after searching GitHub; no confident match or substitute. |
+| [Context7](https://github.com/upstash/context7) | knowledge | library | Downloaded at pinned commit; 10 skill files indexed. Read the guide when a task needs it; nothing was executed. |
 | [Watch](https://github.com/bradautomates/claude-video) | knowledge | skill-installed | Same instruction files installed for Codex and Claude Code. Optional runtime/account requirements remain separate. |
 | [Scrapling](https://github.com/D4Vinci/Scrapling) | knowledge | runtime-installed | Local executable installed; see usage restrictions in the shared guide. |
-| Composio | knowledge | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Composio](https://github.com/ComposioHQ/composio) | knowledge | source-identified | Hosted toolkit platform; needs a Composio account. |
 | [Impeccable](https://github.com/pbakaus/impeccable) | design | existing-skill | Existing Codex skill and shared reviewed Claude plugin preserved. |
 | [Taste](https://github.com/Leonxlnx/taste-skill) | design | not-integrated | Source identified; runtime integration not installed or verified. |
 | [MotionSites](https://github.com/Motionsites-AI/claude-skill) | design | skill-installed | Same instruction files installed for Codex and Claude Code. Optional runtime/account requirements remain separate. |
@@ -56,89 +56,89 @@ Updated 2026-11-18. `skill-installed` means instruction files, not proof every o
 | [Annotated Illustrations](https://github.com/helloianneo/ian-xiaohei-illustrations) | design | skill-installed | Same instruction files installed for Codex and Claude Code. Optional runtime/account requirements remain separate. |
 | UI UX Pro Max | design | existing-skill | Existing Codex skill and shared reviewed Claude plugin preserved. |
 | Frontend Design | design | existing-skill | Existing Codex skill and shared reviewed Claude plugin preserved. |
-| Awesome Design MD | design | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Awesome Design MD](https://github.com/VoltAgent/awesome-design-md) | design | library | Downloaded at pinned commit; 0 skill files indexed. Read the guide when a task needs it; nothing was executed. |
 | Web Design Guidelines | design | existing-skill | Existing Codex skill and shared reviewed Claude plugin preserved. |
-| Figma MCP | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Skill UI | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Stage Show | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Archify | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| PPT Master | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Diagram Design | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Framer | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Emergent | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| GSAP | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Lenis | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| React Bits | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| 21st.dev | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Motion.dev | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Anime.js | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| shadcn Charts | design | unresolved | Exact source or integration not verified. Not an installed tool. |
-| transitions.dev | design | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Figma MCP](https://github.com/figma/mcp-server-guide) | design | source-identified | Official Figma MCP; needs Figma desktop/account. Free two-way alternative: awdr74100/figwright. |
+| [Skill UI](https://github.com/Cryptoyankees/skill-ui-claude) | design | source-identified | Weak match only; exact source unknown. |
+| [Stage Show](https://github.com/rizaardiyanto1412/stageshow-js) | design | source-identified | Faux product UI + cursor demo skill (port of benjitaylor's StageShow). |
+| [Archify](https://github.com/tt-a1i/archify) | design | library | Downloaded at pinned commit; 5 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: scan timed out; not verified. |
+| [PPT Master](https://github.com/hugohe3/ppt-master) | design | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: scan timed out; not verified. |
+| [Diagram Design](https://github.com/AlanYu04/excalidraw-generator-skill) | design | source-identified | Substitute: Excalidraw diagram skill. Archify (in library) also covers diagrams. |
+| Framer | design | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Emergent | design | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| GSAP | design | web-library | Front-end library used when building a site (npm/CDN), not an agent tool. |
+| Lenis | design | web-library | Front-end library used when building a site (npm/CDN), not an agent tool. |
+| React Bits | design | web-library | Front-end library used when building a site (npm/CDN), not an agent tool. |
+| 21st.dev | design | web-library | Front-end library used when building a site (npm/CDN), not an agent tool. |
+| Motion.dev | design | web-library | Front-end library used when building a site (npm/CDN), not an agent tool. |
+| Anime.js | design | web-library | Front-end library used when building a site (npm/CDN), not an agent tool. |
+| shadcn Charts | design | web-library | Front-end library used when building a site (npm/CDN), not an agent tool. |
+| transitions.dev | design | web-library | Front-end library used when building a site (npm/CDN), not an agent tool. |
 | [HyperFrames](https://github.com/heygen-com/hyperframes) | creative | runtime-installed | Local executable installed; see usage restrictions in the shared guide. |
 | [Lemo-Opuscar](https://github.com/lemomo-ai/lemo-opuscar) | creative | skill-installed | Same instruction files installed for Codex and Claude Code. Optional runtime/account requirements remain separate. |
 | [VoiceStudio](https://github.com/debpalash/VoiceStudio) | creative | not-integrated | Source identified; runtime integration not installed or verified. |
 | [Teardown](https://github.com/elvarofficial/teardown) | creative | not-integrated | Source identified; runtime integration not installed or verified. |
-| OneTake | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Collage B-roll | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Clawd Animation Base | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Open Montage | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Banana Pro Director | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Cinema World Builder | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| OpenHiggsfield | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| OpenWhispr | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Cap | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Blender | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Blender MCP | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| DaVinci Resolve | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| DaVinci Resolve MCP | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Photoshop | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Illustrator | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Premiere Pro | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| After Effects | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Adobe MCP | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Canva | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| CapCut | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| ElevenLabs | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Midjourney | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Stable Diffusion | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| DeepFloyd | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Unity AI | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| iBaila | creative | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Playwright MCP | testing | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [OneTake](https://github.com/feitangyuan/onetake) | creative | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| Collage B-roll | creative | unresolved | Still unresolved after searching GitHub; no confident match or substitute. |
+| [Clawd Animation Base](https://github.com/EveryCatchLiu/ClawdAnimation) | creative | source-identified | Closest match: Clawd pixel animations; exact creator download unknown. |
+| [Open Montage](https://github.com/OpenMontageInc/OpenMontage) | creative | library | Downloaded at pinned commit; 141 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| Banana Pro Director | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Cinema World Builder | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| OpenHiggsfield | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| [OpenWhispr](https://github.com/OpenWhispr/openwhispr) | creative | source-identified | Local voice dictation app (Whisper/Parakeet). |
+| [Cap](https://github.com/CapSoftware/Cap) | creative | source-identified | Open-source Loom alternative (screen recording app). |
+| Blender | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| [Blender MCP](https://github.com/ahujasid/mcp-for-blender) | creative | source-identified | Blender add-on + MCP server; install Blender (free) first. |
+| DaVinci Resolve | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| [DaVinci Resolve MCP](https://github.com/samuelgursky/davinci-resolve-mcp) | creative | source-identified | Requires DaVinci Resolve Studio (paid) for scripting. |
+| Photoshop | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Illustrator | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Premiere Pro | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| After Effects | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Adobe MCP | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Canva | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| CapCut | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| ElevenLabs | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Midjourney | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Stable Diffusion | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| DeepFloyd | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Unity AI | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| iBaila | creative | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| [Playwright MCP](https://github.com/microsoft/playwright-cli) | testing | library | Downloaded at pinned commit; 2 skill files indexed. Read the guide when a task needs it; nothing was executed. |
 | Playwright CLI | testing | existing-skill | Existing Codex skill and shared reviewed Claude plugin preserved. |
-| Code Review | testing | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Security Guidance | testing | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Claude Security | testing | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Strix | testing | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Code Review](https://github.com/anthropics/claude-plugins-official) | testing | library | Downloaded at pinned commit; 57 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [Security Guidance](https://github.com/anthropics/claude-plugins-official) | testing | library | Downloaded at pinned commit; 57 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [Claude Security](https://github.com/anthropics/claude-code-security-review) | testing | source-identified | Security review GitHub Action; Claude Code also has /security-review built in. |
+| [Strix](https://github.com/usestrix/strix) | testing | library | Downloaded at pinned commit; 9 skill files indexed. Read the guide when a task needs it; nothing was executed. |
 | [NVIDIA SkillSpector](https://github.com/NVIDIA/skillspector) | testing | runtime-installed | Local executable installed; see usage restrictions in the shared guide. |
-| Council | testing | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Council](https://github.com/karpathy/llm-council) | testing | source-identified | Multi-model council web app; uses OpenRouter credits. Skill version: aiwithremy/claude-skills-llm-council. |
 | REA | testing | not-activated | No bypass tools, trading, financial access, or account changes activated. |
-| Pinocchio (uncertain transcription) | testing | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Pinocchio (uncertain transcription)](https://github.com/pinokiocomputer/pinokio) | testing | source-identified | Likely 'Pinokio': one-click local AI app browser. |
 | Humanizer | productivity | existing-skill | Existing Codex skill and shared reviewed Claude plugin preserved. |
-| Stop Slop | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Anthropic Skills | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Anthropic Plugins | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Marketing Skills | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| I Have ADHD | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Seed Skill | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [Stop Slop](https://github.com/hardikpandya/stop-slop) | productivity | library | Downloaded at pinned commit; 1 skill files indexed. Read the guide when a task needs it; nothing was executed. Scan: LOW 0/100. |
+| [Anthropic Skills](https://github.com/anthropics/skills) | productivity | library | Downloaded at pinned commit; 20 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [Anthropic Plugins](https://github.com/anthropics/claude-plugins-official) | productivity | library | Downloaded at pinned commit; 57 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [Marketing Skills](https://github.com/coreyhaines31/marketingskills) | productivity | library | Downloaded at pinned commit; 53 skill files indexed. Read the guide when a task needs it; nothing was executed. |
+| [I Have ADHD](https://github.com/Leonw98/adhd-claude-skill) | productivity | source-identified | Closest match: focus-session skill for ADHD-style work. |
+| [Seed Skill](https://github.com/Jakeschincariol/seed-skill) | productivity | library | Downloaded at pinned commit; 11 skill files indexed. Read the guide when a task needs it; nothing was executed. |
 | TraderSkill | productivity | not-activated | No bypass tools, trading, financial access, or account changes activated. |
 | Alpaca | productivity | not-activated | No bypass tools, trading, financial access, or account changes activated. |
-| OpenSEO | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| AppFlowy | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| OpenProject | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Cal.diy | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Cal.com | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Chatwoot | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Hiring.cafe | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
+| [OpenSEO](https://github.com/TahaHachana/OpenSEO) | productivity | source-identified | Open-source SEO tool; skills: every-app/seo-party-skills. |
+| [AppFlowy](https://github.com/AppFlowy-IO/AppFlowy) | productivity | source-identified | Open-source Notion alternative app. |
+| [OpenProject](https://github.com/opf/openproject) | productivity | source-identified | Self-hosted project management. |
+| [Cal.diy](https://github.com/calcom/cal.diy) | productivity | source-identified | Self-hosted scheduling (Cal.com open source). |
+| [Cal.com](https://github.com/calcom/cal.diy) | productivity | source-identified | Same project as Cal.diy (self-hosted). |
+| [Chatwoot](https://github.com/chatwoot/chatwoot) | productivity | source-identified | Self-hosted support inbox. |
+| Hiring.cafe | productivity | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
 | Plaid | productivity | not-activated | No bypass tools, trading, financial access, or account changes activated. |
-| Cassidy AI | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Jack Claude Code OS | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| Chase Claude OS | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| VIR Manuscript Assistant | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| GetLayers | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| 42-skill team bundle | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| First 100 Customers Skill | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
-| iOS Agents | productivity | unresolved | Exact source or integration not verified. Not an installed tool. |
+| Cassidy AI | productivity | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Jack Claude Code OS | productivity | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| Chase Claude OS | productivity | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| VIR Manuscript Assistant | productivity | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| GetLayers | productivity | external-service | Commercial/desktop app or hosted service; needs its own install or account. Don't enable billing. |
+| 42-skill team bundle | productivity | unresolved | Still unresolved after searching GitHub; no confident match or substitute. |
+| First 100 Customers Skill | productivity | unresolved | Still unresolved after searching GitHub; no confident match or substitute. |
+| iOS Agents | productivity | unresolved | Still unresolved after searching GitHub; no confident match or substitute. |
 | [Atticus](https://github.com/SaarthurR/atticus-mac) | productivity | platform-blocked | Mac-only; this setup is Windows. |
 | Cloudflare Pages | services | external-service | Requires a real account/plan/integration; do not enable billing. |
 | Cloudflare R2 | services | external-service | Requires a real account/plan/integration; do not enable billing. |
@@ -233,3 +233,5 @@ Updated 2026-11-18. `skill-installed` means instruction files, not proof every o
 | [watch](https://github.com/bradautomates/claude-video) | skill | skill-installed | Instructions installed; optional runtimes and account access are separate. |
 | [writing-plans](https://github.com/obra/superpowers) | skill | skill-installed | Instructions installed; optional runtimes and account access are separate. |
 | [writing-skills](https://github.com/obra/superpowers) | skill | skill-installed | Instructions installed; optional runtimes and account access are separate. |
+
+Library skills indexed in the catalog: 1601.
