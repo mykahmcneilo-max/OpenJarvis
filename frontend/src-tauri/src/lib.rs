@@ -10,10 +10,10 @@ const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
 #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 const DESKTOP_UV_SYNC_COMMAND: &str =
-    "uv sync --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
+    "uv sync --inexact --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
 #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
 const DESKTOP_UV_SYNC_COMMAND: &str =
-    "uv sync --python cpython-3.12-windows-x86_64-none --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
+    "uv sync --inexact --python cpython-3.12-windows-x86_64-none --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
 
 /// Small, fast model used when startup needs a default Ollama tag.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -1392,7 +1392,8 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     // override from config instead of hard-coding JARVIS_PORT.
     {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(2))
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
             .build()
             .unwrap();
         match client
@@ -1529,6 +1530,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     sync_cmd
         .args([
             "sync",
+            "--inexact",
             "--extra",
             "desktop",
             "--extra",

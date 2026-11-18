@@ -556,6 +556,16 @@ class ResearchAgent:
             sources=sources,
             limit=limit,
         )
+        response = ""
+        if not hits and person:
+            hits = self._search.search(
+                f"{person} {query}",
+                person=None,
+                time_range=time_range,
+                sources=sources,
+                limit=limit,
+            )
+            response = "No results with the person filter; retried once without it, keeping the name in the text query."
         titles = [h.title or (h.content_snippet[:60] + "…") for h in hits[:5]]
         return ToolInvocation(
             tool_name="search",
@@ -580,6 +590,7 @@ class ResearchAgent:
             num_results=len(hits),
             top_titles=titles,
             raw_hits=hits,
+            response=response,
         )
 
     def _execute_clarify(self, args: Dict[str, Any]) -> ToolInvocation:
@@ -759,8 +770,11 @@ class ResearchAgent:
                     for src in sources_for_search:
                         ref_to_source[int(src["ref"])] = src
                     next_ref += len(sources_for_search)
+                    shaped = shape_results_for_model(inv.raw_hits, ref_offset=offset)
+                    if inv.response:
+                        shaped["search_note"] = inv.response
                     tool_output = json.dumps(
-                        shape_results_for_model(inv.raw_hits, ref_offset=offset),
+                        shaped,
                         ensure_ascii=False,
                     )
                 elif name == "clarify":

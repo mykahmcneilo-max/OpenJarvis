@@ -616,3 +616,47 @@ def test_final_answer_event_carries_renumbered_sources(
     # Two cited sources, in the order they appeared in the synthesis.
     assert [s["ref"] for s in final["sources"]] == [1, 2]
     assert [s["title"] for s in final["sources"]] == ["B", "A"]
+
+
+def test_empty_person_search_retries_once_preserving_other_filters(stub_search):
+    agent = ResearchAgent(_MockEngine([_text_response("done")]), stub_search)
+    stub_search.search.side_effect = [[], []]
+    result = agent._execute_search(
+        {
+            "query": "Dad birthday",
+            "person": "Dad",
+            "sources": ["gcalendar"],
+        }
+    )
+    assert stub_search.search.call_count == 2
+    assert "Dad" in stub_search.search.call_args.args[0]
+    assert stub_search.search.call_args.kwargs["person"] is None
+    assert stub_search.search.call_args.kwargs["sources"] == ["gcalendar"]
+    assert "retried once" in result.response
+
+
+def test_unfiltered_empty_search_does_not_retry(stub_search):
+    agent = ResearchAgent(_MockEngine([_text_response("done")]), stub_search)
+    agent._execute_search({"query": "birthday"})
+    assert stub_search.search.call_count == 1
+
+
+def test_recovered_results_and_filter_note_reach_model(stub_search):
+    hit = _mk_hit(source="gcalendar", title="Dad birthday")
+    stub_search.search.side_effect = [[], [hit]]
+    call = _search_call("birthday")
+    call["tool_calls"][0]["arguments"] = json.dumps(
+        {
+            "query": "Dad birthday",
+            "person": "Dad",
+            "sources": ["gcalendar"],
+        }
+    )
+    engine = _MockEngine([call, _text_response("December 29 [1].")])
+    result = ResearchAgent(engine, stub_search).run("When is Dad's birthday?")
+    assert result.tool_calls[0].raw_hits == [hit]
+    tool_message = next(
+        m for m in engine.calls[1]["messages"] if m.role.value == "tool"
+    )
+    assert "retried once without" in tool_message.content
+    assert "Dad birthday" in tool_message.content

@@ -957,3 +957,22 @@ def test_elevenlabs_missing_key_raises(monkeypatch):
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="ELEVENLABS_API_KEY"):
         ElevenLabsTTSBackend().synthesize("Hello")
+
+
+def test_kokoro_setup_exit_does_not_terminate_server(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from openjarvis.speech import kokoro_tts
+
+    backend = kokoro_tts.KokoroTTSBackend()
+    monkeypatch.setattr(backend, "_ensure_model", lambda: object())
+    monkeypatch.setattr(
+        kokoro_tts,
+        "_import_kokoro",
+        lambda: SimpleNamespace(
+            KPipeline=Mock(side_effect=SystemExit(1)),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="Speech language resources"):
+        backend._ensure_pipeline("a")

@@ -62,3 +62,12 @@ describe('setModels', () => {
     expect(useAppStore.getState().selectedModel).toBe('qwen3.5:4b');
   });
 });
+
+
+it('restores the selected model after app restart', async () => {
+  const first = await import('./store');
+  first.useAppStore.getState().setSelectedModel('qwen3.5:9b');
+  vi.resetModules();
+  const second = await import('./store');
+  expect(second.useAppStore.getState().selectedModel).toBe('qwen3.5:9b');
+});

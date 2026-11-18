@@ -32,6 +32,11 @@ export interface AgentEvent {
   data: Record<string, unknown>;
 }
 
+function loadSelectedModel(): string {
+  try { return localStorage.getItem('oj-selected-model') || ''; }
+  catch { return ''; }
+}
+
 // ── localStorage persistence ──────────────────────────────────────────
 
 const CONVERSATIONS_KEY = 'openjarvis-conversations';
@@ -285,7 +290,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     models: [],
     modelsLoading: true,
-    selectedModel: '',
+    selectedModel: loadSelectedModel(),
     serverInfo: null,
     savings: null,
 
@@ -516,7 +521,10 @@ export const useAppStore = create<AppState>((set, get) => {
         return { models };
       }),
     setModelsLoading: (loading: boolean) => set({ modelsLoading: loading }),
-    setSelectedModel: (model: string) => set({ selectedModel: model }),
+    setSelectedModel: (model: string) => {
+      try { localStorage.setItem('oj-selected-model', model); } catch { /* storage unavailable */ }
+      set({ selectedModel: model });
+    },
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),
     setSavings: (data: SavingsData | null) => set({ savings: data }),
     incrementSavings: (usage: TokenUsage) => {

@@ -175,6 +175,12 @@ class KokoroTTSBackend(TTSBackend):
                     repo_id=_KOKORO_REPO_ID,
                     model=self._ensure_model(),
                 )
+            except SystemExit as exc:
+                # spaCy's dependency downloader calls sys.exit on setup failure.
+                raise RuntimeError(
+                    "Speech language resources are unavailable; "
+                    "install the required spaCy model before using Read Aloud."
+                ) from exc
             except ImportError as exc:
                 # Kokoro loads language-specific G2P resources at init time and
                 # several languages need extra dependencies that aren't pulled in
