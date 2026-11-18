@@ -802,7 +802,11 @@ def test_imported_apple_data_is_reported_without_direct_mac_access(app, monkeypa
         for c in app.get("/v1/connectors").json()["connectors"]
         if c["connector_id"] == "imessage"
     )
-    assert result["connected"] is False
+    # Imported Mac data is listed with the other connected sources, but
+    # marked as imported (the connector itself has no direct Mac access).
+    assert result["connected"] is True
+    assert result["connection_kind"] == "imported"
+    assert "state" in result["import_status"]
     assert result["documents"] == 2
     assert result["chunks"] == 3
     assert result["last_indexed_change"].endswith("+00:00")

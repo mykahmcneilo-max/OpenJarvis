@@ -41,6 +41,79 @@ def _knowledge_sources(connector_id: str, connector: Any = None) -> tuple[str, .
     return tuple(explicit) if explicit else (connector_id,)
 
 
+# Sources imported from the user's Mac by the auto-sync importer.
+_MAC_IMPORTED = {"imessage", "apple_notes", "apple_contacts", "apple_calendar"}
+# Indexed sources with no registered connector (fed by local importers).
+_IMPORTED_ONLY = {"onedrive": ("OneDrive", "onedrive")}
+
+
+def _import_status(job_id: str) -> Dict[str, Any]:
+    """Auto-sync state for an importer job (from auto_sync.json)."""
+    import json as _json
+
+    from openjarvis.core.paths import get_config_dir
+
+    try:
+        jobs = _json.loads(
+            (get_config_dir() / "auto_sync.json").read_text(encoding="utf-8")
+        ).get("jobs", {})
+    except (OSError, ValueError):
+        return {"state": "unknown"}
+    job = jobs.get(job_id) or {}
+    return {
+        k: job.get(k)
+        for k in (
+            "state",
+            "last_success",
+            "last_attempt",
+            "next_run",
+            "error",
+            "detail",
+        )
+    }
+
+
+def _imported_only_sources(listed: set) -> list:
+    """Summaries for indexed sources that have no registered connector."""
+    out = []
+    try:
+        from openjarvis.connectors.store import KnowledgeStore
+
+        with KnowledgeStore() as store:
+            for source, (label, job) in _IMPORTED_ONLY.items():
+                if source in listed:
+                    continue
+                chunks, documents, last = store._conn.execute(
+                    "SELECT COUNT(*), COUNT(DISTINCT doc_id), MAX(last_synced) "
+                    "FROM knowledge_chunks WHERE source = ? AND deleted_at IS NULL",
+                    (source,),
+                ).fetchone()
+                if not documents:
+                    continue
+                out.append(
+                    {
+                        "connector_id": source,
+                        "display_name": label,
+                        "auth_type": "local",
+                        "connected": True,
+                        "connection_kind": "imported",
+                        "chunks": chunks,
+                        "documents": documents,
+                        "last_indexed_change": (
+                            datetime.fromtimestamp(
+                                float(last), tz=timezone.utc
+                            ).isoformat()
+                            if last is not None
+                            else None
+                        ),
+                        "import_status": _import_status(job),
+                    }
+                )
+    except Exception:
+        logger.debug("Imported-only source summary failed", exc_info=True)
+    return out
+
+
 def _ensure_connectors_registered() -> None:
     """Ensure ConnectorRegistry is populated.
 
@@ -168,15 +241,26 @@ def create_connectors_router():
         except Exception:
             pass
 
-        return {
+        native = bool(instance.is_connected())
+        summary: Dict[str, Any] = {
             "connector_id": connector_id,
             "display_name": getattr(instance, "display_name", connector_id),
             "auth_type": getattr(instance, "auth_type", "unknown"),
-            "connected": instance.is_connected(),
+            "connected": native,
+            "connection_kind": "native" if native else "none",
             "chunks": chunks,
             "documents": documents,
             "last_indexed_change": last_indexed_change,
         }
+        # Apple sources on Windows: their connectors look for Mac file paths,
+        # but the data is imported from the Mac. Indexed data = connected.
+        if not native and connector_id in _MAC_IMPORTED and documents:
+            summary.update(
+                connected=True,
+                connection_kind="imported",
+                import_status=_import_status("apple"),
+            )
+        return summary
 
     def _maybe_oauth_client_pair(
         connector_id: str, req: ConnectRequest
@@ -458,6 +542,7 @@ def create_connectors_router():
                         "connected": False,
                     }
                 )
+        results.extend(_imported_only_sources({r["connector_id"] for r in results}))
         return {"connectors": results}
 
     @router.get("/{connector_id}")
