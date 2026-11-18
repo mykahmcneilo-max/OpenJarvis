@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, List, Mapping, Optional, Tuple
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
 from openjarvis.core.registry import ConnectorRegistry
@@ -39,6 +39,17 @@ _APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 # ---------------------------------------------------------------------------
 # Timestamp helper
 # ---------------------------------------------------------------------------
+
+
+def normalize_handle(handle: str) -> str:
+    """Match formatted US phones and case-insensitive email handles."""
+    handle = handle.strip()
+    if "@" in handle:
+        return handle.lower()
+    digits = "".join(c for c in handle if c.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits or handle.lower()
 
 
 def _apple_ts_to_datetime(apple_ns: int) -> datetime:
@@ -78,7 +89,13 @@ class IMessageConnector(BaseConnector):
     display_name = "iMessage"
     auth_type = "local"
 
-    def __init__(self, db_path: str = "") -> None:
+    def __init__(
+        self, db_path: str = "", *, handle_names: Optional[Mapping[str, str]] = None
+    ) -> None:
+        self._handle_names = {
+            normalize_handle(handle): name
+            for handle, name in (handle_names or {}).items()
+        }
         self._db_path: Path = Path(db_path) if db_path else _DEFAULT_DB_PATH
         self._connected: bool = False
         self._items_synced: int = 0
@@ -158,6 +175,16 @@ class IMessageConnector(BaseConnector):
             # ------------------------------------------------------------------
             # 4. Query messages with non-NULL text
             # ------------------------------------------------------------------
+            chat_handles: Dict[int, List[str]] = {}
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'chat_handle_join'"
+            ).fetchone():
+                for chat_id, hid in conn.execute(
+                    "SELECT chat_id, handle_id FROM chat_handle_join"
+                ):
+                    if hid in handle_map:
+                        chat_handles.setdefault(chat_id, []).append(handle_map[hid])
+
             rows = conn.execute(
                 "SELECT ROWID, text, handle_id, date, is_from_me "
                 "FROM message "
@@ -190,7 +217,10 @@ class IMessageConnector(BaseConnector):
                 if is_from_me:
                     author = "me"
                 else:
-                    author = handle_map.get(handle_id, "unknown")
+                    raw_author = handle_map.get(handle_id, "unknown")
+                    author = self._handle_names.get(
+                        normalize_handle(raw_author), raw_author
+                    )
 
                 # Determine chat name / title
                 chat_id = msg_to_chat.get(rowid)
@@ -200,6 +230,22 @@ class IMessageConnector(BaseConnector):
                     # Fall back to the handle identifier
                     chat_name = handle_map.get(handle_id, "")
 
+                raw_handle = handle_map.get(handle_id, "")
+                chat_name = self._handle_names.get(
+                    normalize_handle(chat_name), chat_name
+                )
+                participants_raw = list(
+                    dict.fromkeys(
+                        h for h in [*chat_handles.get(chat_id, []), raw_handle] if h
+                    )
+                )
+                participants = [
+                    self._handle_names.get(normalize_handle(h), h)
+                    for h in participants_raw
+                ]
+                if is_from_me:
+                    participants.append("me")
+
                 doc = Document(
                     doc_id=f"imessage:{rowid}",
                     source="imessage",
@@ -207,6 +253,8 @@ class IMessageConnector(BaseConnector):
                     content=text,
                     title=chat_name,
                     author=author,
+                    participants=participants,
+                    participants_raw=participants_raw,
                     timestamp=timestamp,
                 )
                 synced += 1

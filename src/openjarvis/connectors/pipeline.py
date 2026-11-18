@@ -222,7 +222,18 @@ class IngestionPipeline:
                     and self._store.embedding_versions(doc.doc_id, source_id)
                     != {self._embedder.model_version}
                 )
-                if existing_hashes == new_hashes and not stale_vectors:
+                if (
+                    existing_hashes == new_hashes
+                    and not stale_vectors
+                    and self._store.identity_matches(
+                        doc.doc_id,
+                        source_id,
+                        doc.title,
+                        doc.author,
+                        doc.participants,
+                        doc.participants_raw,
+                    )
+                ):
                     seen_doc_ids.add(doc.doc_id)
                     continue
                 self._store.delete(doc.doc_id)

@@ -624,3 +624,13 @@ def test_sync_deduplicates_across_sources(tmp_path: Path) -> None:
     ids = {d.doc_id for d in docs}
     assert "apple_contacts:uid-alice" in ids
     assert "apple_contacts:uid-bob" in ids
+
+
+def test_handle_names_from_snapshot(fake_db):
+    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+
+    names = AppleContactsConnector(str(fake_db)).handle_names()
+    assert names
+    assert all(handle and name for handle, name in names.items())
+    assert any("@" in handle for handle in names)
+    assert any("@" not in handle for handle in names)

@@ -297,6 +297,26 @@ class AppleContactsConnector(BaseConnector):
     # BaseConnector interface
     # ------------------------------------------------------------------
 
+    def handle_names(self) -> Dict[str, str]:
+        """Return phone/email names from every available Contacts snapshot."""
+        names: Dict[str, str] = {}
+        for path in self._all_db_paths():
+            conn = self._open_db(path)
+            if conn is None:
+                continue
+            try:
+                for row in conn.execute(_CONTACTS_QUERY):
+                    name = _build_name(*(value or "" for value in row[1:5]))
+                    if not name:
+                        continue
+                    for query in (_PHONES_QUERY, _EMAILS_QUERY):
+                        for handle, _label in conn.execute(query, (row[0],)):
+                            if handle:
+                                names[handle] = name
+            finally:
+                conn.close()
+        return names
+
     def is_connected(self) -> bool:
         """Return ``True`` if any AddressBook database exists."""
         return len(self._all_db_paths()) > 0

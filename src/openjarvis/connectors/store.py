@@ -489,6 +489,30 @@ class KnowledgeStore(MemoryBackend):
         ).fetchall()
         return {row[0]: row[1] or "" for row in rows}
 
+    def identity_matches(
+        self,
+        doc_id: str,
+        source_id: str,
+        title: str,
+        author: str,
+        participants: List[str],
+        participants_raw: List[str],
+    ) -> bool:
+        """Notice contact renames even when message text has not changed."""
+        rows = self._conn.execute(
+            "SELECT title, author, participants, participants_raw "
+            "FROM knowledge_chunks "
+            "WHERE doc_id = ? AND source_id = ?",
+            (doc_id, source_id),
+        ).fetchall()
+        return bool(rows) and all(
+            row[0] == title
+            and row[1] == author
+            and json.loads(row[2]) == participants
+            and json.loads(row[3]) == participants_raw
+            for row in rows
+        )
+
     def embedding_versions(self, doc_id: str, source_id: str) -> set[str]:
         """Return the distinct ``embedding_model_version`` values on a document's body.
 

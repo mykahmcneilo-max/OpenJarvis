@@ -200,3 +200,82 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("imessage")
     cls = ConnectorRegistry.get("imessage")
     assert cls.connector_id == "imessage"
+
+
+def test_contact_names_and_raw_handles(fake_db):
+    from openjarvis.connectors.imessage import IMessageConnector
+
+    docs = list(
+        IMessageConnector(
+            str(fake_db),
+            handle_names={
+                "+1 (555) 0100": "Jarvis",
+                "ALICE@ICLOUD.COM": "Alice Smith",
+            },
+        ).sync()
+    )
+    assert docs[0].author == "Jarvis"
+    assert docs[0].participants == ["Jarvis"]
+    assert docs[0].participants_raw == ["+15550100"]
+    assert docs[1].author == "me"
+    assert docs[2].author == "Alice Smith"
+    assert docs[2].title == "Team Group"
+
+
+def test_us_phone_normalization():
+    from openjarvis.connectors.imessage import normalize_handle
+
+    assert normalize_handle("+1 (202) 555-0100") == normalize_handle("2025550100")
+    assert normalize_handle(" USER@EXAMPLE.COM ") == "user@example.com"
+    assert normalize_handle("+44 20 1234 5678") == "442012345678"
+
+
+def test_resync_updates_names_without_changing_message(fake_db, tmp_path):
+    from openjarvis.connectors.imessage import IMessageConnector
+    from openjarvis.connectors.pipeline import IngestionPipeline
+    from openjarvis.connectors.store import KnowledgeStore
+
+    store = KnowledgeStore(str(tmp_path / "knowledge.db"))
+    pipeline = IngestionPipeline(store)
+    assert pipeline.ingest(list(IMessageConnector(str(fake_db)).sync())) == 3
+    named = list(
+        IMessageConnector(
+            str(fake_db),
+            handle_names={
+                "+15550100": "Jarvis",
+            },
+        ).sync()
+    )
+    assert pipeline.ingest(named) == 2
+    rows = store._conn.execute(
+        "SELECT author, participants_raw FROM knowledge_chunks WHERE doc_id = ?",
+        ("imessage:1",),
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "Jarvis"
+    assert rows[0][1] == '["+15550100"]'
+    assert pipeline.ingest(named) == 0
+
+
+def test_group_members_and_direct_chat_title(fake_db):
+    from openjarvis.connectors.imessage import IMessageConnector
+
+    with sqlite3.connect(fake_db) as db:
+        db.executescript(
+            "CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);"
+            "INSERT INTO chat_handle_join VALUES (2, 1), (2, 2);"
+            "UPDATE chat SET display_name = NULL WHERE ROWID = 1;"
+        )
+    docs = list(
+        IMessageConnector(
+            str(fake_db),
+            handle_names={
+                "+15550100": "Jarvis",
+                "alice@icloud.com": "Alice",
+            },
+        ).sync()
+    )
+    assert docs[0].title == "Jarvis"
+    assert docs[2].title == "Team Group"
+    assert docs[2].participants == ["Jarvis", "Alice"]
+    assert docs[2].participants_raw == ["+15550100", "alice@icloud.com"]
