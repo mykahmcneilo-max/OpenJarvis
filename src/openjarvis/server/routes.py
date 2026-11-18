@@ -155,12 +155,101 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     return [combined_system, *non_system_messages]
 
 
+async def _maybe_named_agent_reply(request_body, request: Request, engine, model):
+    """Answer with a named agent when the last user turn addresses one.
+
+    Returns a response (JSON or SSE) or ``None`` to continue normally. The
+    reply carries ``openjarvis: {agent, model}`` so the UI can show who
+    actually answered.
+    """
+    import asyncio
+    import json as _json
+    import time as _time
+    import uuid as _uuid
+
+    manager = getattr(request.app.state, "agent_manager", None)
+    last = next(
+        (m for m in reversed(request_body.messages or []) if m.role == "user"), None
+    )
+    if manager is None or last is None or not isinstance(last.content, str):
+        return None
+    from openjarvis.agents.name_router import resolve_mention, run_named_agent
+
+    try:
+        mention = resolve_mention(last.content, manager.list_agents())
+    except Exception:
+        return None
+    if not (mention.routed or mention.error):
+        return None
+
+    if mention.error:
+        out = {"content": mention.error, "agent": "Jarvis", "model": "", "note": ""}
+    else:
+        context = "\n".join(
+            f"{m.role}: {m.content}"
+            for m in (request_body.messages or [])[:-1][-8:]
+            if m.role in ("user", "assistant") and isinstance(m.content, str)
+        )
+        default_model = getattr(request.app.state, "model", "") or model
+        out = await asyncio.to_thread(
+            run_named_agent,
+            mention,
+            engine=engine,
+            default_model=default_model,
+            context=context,
+            bus=getattr(request.app.state, "bus", None),
+        )
+    text = f"{out['content']}\n\n{out['note']}".strip()
+    meta = {"agent": out["agent"], "model": out["model"]}
+    cid = f"chatcmpl-{_uuid.uuid4().hex[:24]}"
+    created = int(_time.time())
+    if not request_body.stream:
+        return {
+            "id": cid,
+            "object": "chat.completion",
+            "created": created,
+            "model": out["model"] or model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "stop",
+                }
+            ],
+            "openjarvis": meta,
+        }
+
+    async def _events():
+        chunk = {
+            "id": cid,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": out["model"] or model,
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": text}}],
+            "openjarvis": meta,
+        }
+        yield f"data: {_json.dumps(chunk)}\n\n"
+        done = {
+            **chunk,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        }
+        yield f"data: {_json.dumps(done)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_events(), media_type="text/event-stream")
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request_body: ChatCompletionRequest, request: Request):
     """Handle chat completion requests (streaming and non-streaming)."""
     engine = request.app.state.engine
     agent = getattr(request.app.state, "agent", None)
     model = request_body.model
+
+    # "Hey Tony, ..." -> the named agent answers, same as from the phone.
+    named = await _maybe_named_agent_reply(request_body, request, engine, model)
+    if named is not None:
+        return named
     use_server_agent = (
         agent is not None
         and not request_body.tools
