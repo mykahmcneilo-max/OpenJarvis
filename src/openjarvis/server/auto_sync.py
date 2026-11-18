@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 INTERVAL_SECONDS = 600
 MAX_BACKOFF_SECONDS = 2 * 3600
-CONNECTOR_TIMEOUT_SECONDS = 20 * 60
+# A first full backfill (e.g. a large Gmail inbox) can legitimately take
+# hours; only give up on a sync the server still reports as running after this.
+CONNECTOR_TIMEOUT_SECONDS = 6 * 3600
 CONNECTOR_WAIT_SECONDS = 60  # then move on and check back next tick
 RECHECK_SECONDS = 60
 SCRIPT_TIMEOUT_SECONDS = 20 * 60
@@ -179,7 +181,12 @@ class AutoSync:
             resp = self._client().get(f"{self._base}/v1/connectors")
             for c in resp.json().get("connectors", []):
                 cid = c.get("connector_id") or c.get("id")
-                if not cid or not c.get("connected") or cid in IMPORTED_SOURCES:
+                if (
+                    not cid
+                    or not c.get("connected")
+                    or cid in IMPORTED_SOURCES
+                    or c.get("connection_kind") == "imported"  # fed by an importer
+                ):
                     continue
                 found.append(
                     JobState(
@@ -231,7 +238,7 @@ class AutoSync:
             started = job.detail.startswith("running since ")
             since = float(job.detail.split()[-1]) if started else self._clock()
             if self._clock() - since > CONNECTOR_TIMEOUT_SECONDS:
-                return "error", "sync still running after 20 minutes"
+                return "error", "sync still running after 6 hours"
             return "syncing", f"running since {since}"
         if job.state == "syncing":  # our earlier sync finished meanwhile
             return self._finished(status)
@@ -265,7 +272,21 @@ class AutoSync:
         if proc.returncode == 0:
             return "ok", "; ".join(out[-4:])[:300]
         text = " ".join(err[-2:] or out[-2:])
-        if job.id == "apple" and ("Mac sync skipped" in text or "Can't find" in text):
+        if job.id == "apple" and "authorization denied" in text.lower():
+            return "error", (
+                "The Mac blocked reading its Apple data. On the Mac: System "
+                "Settings > General > Sharing > Remote Login (i) > turn on 'Allow "
+                "full disk access for remote users'. Existing data is kept."
+            )
+        unreachable = (
+            "Can't find",
+            "Connection refused",
+            "timed out",
+            "No route to host",
+            "Could not resolve",
+            "Network is unreachable",
+        )
+        if job.id == "apple" and any(s.lower() in text.lower() for s in unreachable):
             return "unavailable", (
                 "Mac not reachable (asleep or off Wi-Fi). Existing Apple data is "
                 "kept and searchable; fresh import resumes when the Mac is back."

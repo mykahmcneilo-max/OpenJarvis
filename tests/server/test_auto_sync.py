@@ -69,7 +69,13 @@ def test_unreachable_mac_is_unavailable_not_error(tmp_path: Path):
     (tmp_path / "mac_apple_sync.py").write_text("")
     run = MagicMock(
         return_value=subprocess.CompletedProcess(
-            [], 1, stdout="", stderr="Mac sync skipped (Mac asleep or unreachable?)"
+            [],
+            1,
+            stdout="",
+            stderr=(
+                "Mac sync skipped (Mac asleep or unreachable?): "
+                "ssh: connect to host x port 22: Connection timed out"
+            ),
         )
     )
     svc = AutoSync(
@@ -163,3 +169,39 @@ def test_long_connector_sync_does_not_block_other_sources(tmp_path: Path):
     svc.run_due()
     jobs = {j["id"]: j for j in svc.snapshot()["jobs"]}
     assert jobs["gmail"]["state"] == "ok" and jobs["gmail"]["last_success"]
+
+
+def test_mac_permission_block_is_an_actionable_error(tmp_path: Path):
+    (tmp_path / "mac_apple_sync.py").write_text("")
+    run = MagicMock(
+        return_value=subprocess.CompletedProcess(
+            [],
+            1,
+            stdout="",
+            stderr='Error: unable to open database "chat.db": authorization denied',
+        )
+    )
+    svc = AutoSync(
+        "http://x", tmp_path, http=_http(connected=()), run_script=run, clock=_Clock()
+    )
+    svc.run_due()
+    (job,) = svc.snapshot()["jobs"]
+    assert job["state"] == "error"
+    assert "full disk access for remote users" in job["error"]
+
+
+def test_imported_sources_are_not_synced_as_connectors(tmp_path: Path):
+    http = MagicMock()
+    resp = MagicMock()
+    resp.json.return_value = {
+        "connectors": [
+            {
+                "connector_id": "onedrive",
+                "connected": True,
+                "connection_kind": "imported",
+            }
+        ]
+    }
+    http.get.return_value = resp
+    svc = AutoSync("http://x", tmp_path, http=http, clock=_Clock())
+    assert svc.discover() == []
