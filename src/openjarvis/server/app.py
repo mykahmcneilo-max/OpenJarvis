@@ -495,6 +495,28 @@ def create_app(
     # Restore SendBlue channel bindings from database on startup
     _restore_sendblue_bindings(app)
 
+    @app.get("/v1/sync/status")
+    async def auto_sync_status():
+        """Auto-sync state per source (last success, state, error, next run)."""
+        import json as _json
+
+        svc = getattr(app.state, "auto_sync", None)
+        if svc is not None:
+            return {**svc.snapshot(), "available": True}
+        from openjarvis.core.paths import get_config_dir
+
+        path = get_config_dir() / "auto_sync.json"
+        try:
+            raw = _json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"available": False, "running": False, "jobs": []}
+        return {
+            "available": True,
+            "running": False,
+            "interval_seconds": raw.get("interval_seconds"),
+            "jobs": list(raw.get("jobs", {}).values()),
+        }
+
     # Add security headers middleware
     try:
         from openjarvis.server.middleware import create_security_middleware

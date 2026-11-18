@@ -825,6 +825,29 @@ def serve(
             "authenticated requests to your instance."
         )
 
+    # Keep connected sources fresh (every 10 min, no overlap, resumes after
+    # restart). Set OPENJARVIS_AUTO_SYNC=0 to disable.
+    if os.environ.get("OPENJARVIS_AUTO_SYNC", "1") != "0":
+        try:
+            from pathlib import Path as _Path
+
+            from openjarvis.core.paths import get_config_dir as _config_dir
+            from openjarvis.server.auto_sync import AutoSync
+
+            local_host = (
+                "127.0.0.1" if bind_host in ("0.0.0.0", "::", "") else bind_host
+            )
+            auto_sync = AutoSync(
+                f"http://{local_host}:{bind_port}",
+                _config_dir(),
+                repo_dir=_Path.cwd(),
+            )
+            if auto_sync.start(initial_delay=60):
+                console.print("  Sync:   [cyan]every 10 min[/cyan]")
+            app.state.auto_sync = auto_sync
+        except Exception as exc:
+            logger.debug("Auto-sync not started: %s", exc)
+
     from openjarvis.server.daemon import run_server
 
     run_server(app, host=bind_host, port=bind_port, log_level="info")
