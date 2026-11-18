@@ -69,6 +69,9 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     envKey: 'OPENROUTER_API_KEY',
     models: [
       { id: 'openrouter/openrouter/free', desc: 'Free models only — automatic routing' },
+      { id: 'openrouter/nvidia/nemotron-3-ultra-550b-a55b:free', desc: 'Nemotron Ultra 550B - free route' },
+      { id: 'openrouter/nvidia/nemotron-3.5-super-vl:free', desc: 'Nemotron Super VL - free vision route' },
+      { id: 'openrouter/google/gemma-4-31b-it:free', desc: 'Gemma 4 31B - free route' },
       { id: 'openrouter/anthropic/claude-sonnet-4.5', desc: 'Claude Sonnet 4.5 via OpenRouter' },
       { id: 'openrouter/deepseek/deepseek-r1-0528', desc: 'DeepSeek R1 via OpenRouter' },
     ],
