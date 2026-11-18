@@ -127,3 +127,39 @@ def test_jobs_never_overlap_and_single_instance_lock(tmp_path: Path):
     assert first.start(initial_delay=3600) is True
     assert second.start(initial_delay=3600) is False
     first.stop()
+
+
+def test_long_connector_sync_does_not_block_other_sources(tmp_path: Path):
+    """A sync still running after the wait window keeps going in the server
+    while the worker moves on; a later tick records its result."""
+    (tmp_path / "onedrive_index.py").write_text("")
+    clock = _Clock()
+    state = {"gmail": "syncing"}
+    http = MagicMock()
+
+    def get(url, **_):
+        resp = MagicMock()
+        if url.endswith("/v1/connectors"):
+            resp.json.return_value = {
+                "connectors": [{"connector_id": "gmail", "connected": True}]
+            }
+        else:
+            resp.json.return_value = {"state": state["gmail"], "error": None}
+        return resp
+
+    http.get.side_effect = get
+    http.post.return_value = MagicMock(status_code=200)
+    run = MagicMock(return_value=subprocess.CompletedProcess([], 0, stdout="ok"))
+    svc = AutoSync("http://x", tmp_path, http=http, run_script=run, clock=clock)
+    svc._stop.wait = lambda s: clock.__setattr__("t", clock.t + s) or False
+
+    svc.run_due()
+    jobs = {j["id"]: j for j in svc.snapshot()["jobs"]}
+    assert jobs["gmail"]["state"] == "syncing"
+    assert jobs["onedrive"]["state"] == "ok"  # not blocked by Gmail
+
+    state["gmail"] = "idle"
+    clock.t += 61
+    svc.run_due()
+    jobs = {j["id"]: j for j in svc.snapshot()["jobs"]}
+    assert jobs["gmail"]["state"] == "ok" and jobs["gmail"]["last_success"]

@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 INTERVAL_SECONDS = 600
 MAX_BACKOFF_SECONDS = 2 * 3600
 CONNECTOR_TIMEOUT_SECONDS = 20 * 60
+CONNECTOR_WAIT_SECONDS = 60  # then move on and check back next tick
+RECHECK_SECONDS = 60
 SCRIPT_TIMEOUT_SECONDS = 20 * 60
 TICK_SECONDS = 30
 
@@ -119,7 +121,7 @@ class AutoSync:
             jobs = {k: JobState(**v) for k, v in raw.get("jobs", {}).items()}
             for job in jobs.values():
                 if job.state == "syncing":  # interrupted by a restart
-                    job.state = "pending"
+                    job.state, job.detail = "pending", ""
             return AutoSyncState(interval_seconds=self._interval, jobs=jobs)
         except (OSError, ValueError, TypeError):
             return AutoSyncState(interval_seconds=self._interval)
@@ -205,20 +207,45 @@ class AutoSync:
 
     # -- running -------------------------------------------------------------
 
+    def _connector_status(self, job: JobState) -> Dict[str, Any]:
+        return (
+            self._client().get(f"{self._base}/v1/connectors/{job.id}/sync").json() or {}
+        )
+
+    @staticmethod
+    def _finished(status: Dict[str, Any]) -> tuple[str, str]:
+        if status.get("error"):
+            return "error", str(status["error"])[:300]
+        return "ok", f"{status.get('items_synced', 0)} items"
+
     def _sync_connector(self, job: JobState) -> tuple[str, str]:
-        client = self._client()
-        resp = client.post(f"{self._base}/v1/connectors/{job.id}/sync")
+        """Start (or check on) a connector sync without blocking the queue.
+
+        A sync still running after :data:`CONNECTOR_WAIT_SECONDS` keeps going
+        in the server; the job is re-checked on a later tick, so one long
+        backfill (e.g. Gmail) can't hold up every other source.
+        """
+        status = self._connector_status(job)
+        running = status.get("state") in ("syncing", "running")
+        if running:
+            started = job.detail.startswith("running since ")
+            since = float(job.detail.split()[-1]) if started else self._clock()
+            if self._clock() - since > CONNECTOR_TIMEOUT_SECONDS:
+                return "error", "sync still running after 20 minutes"
+            return "syncing", f"running since {since}"
+        if job.state == "syncing":  # our earlier sync finished meanwhile
+            return self._finished(status)
+        resp = self._client().post(f"{self._base}/v1/connectors/{job.id}/sync")
         if resp.status_code >= 400:
             return "error", f"sync refused ({resp.status_code})"
-        deadline = self._clock() + CONNECTOR_TIMEOUT_SECONDS
+        started_at = self._clock()
+        deadline = started_at + CONNECTOR_WAIT_SECONDS
         while not self._stop.is_set() and self._clock() < deadline:
-            status = client.get(f"{self._base}/v1/connectors/{job.id}/sync").json()
+            status = self._connector_status(job)
             if status.get("state") not in ("syncing", "running"):
-                if status.get("error"):
-                    return "error", str(status["error"])[:300]
-                return "ok", f"{status.get('items_synced', 0)} items"
-            self._stop.wait(5)
-        return "error", "sync still running after 20 minutes"
+                return self._finished(status)
+            self._stop.wait(3)
+        return "syncing", f"running since {started_at}"
 
     def _run_importer(self, job: JobState) -> tuple[str, str]:
         script = next(s for s, (jid, _) in IMPORTERS.items() if jid == job.id)
@@ -248,7 +275,10 @@ class AutoSync:
     def run_job(self, job: JobState) -> None:
         now = self._clock()
         with self._mutex:
-            job.state, job.last_attempt = "syncing", now
+            if job.state != "syncing":  # keep "running since" while re-checking
+                job.last_attempt = now
+                if job.kind == "importer":
+                    job.state = "syncing"
             self._save()
         try:
             if job.kind == "connector":
@@ -260,6 +290,11 @@ class AutoSync:
         end = self._clock()
         with self._mutex:
             job.state = outcome
+            if outcome == "syncing":  # still running in the server
+                job.detail = detail
+                job.next_run = end + RECHECK_SECONDS
+                self._save()
+                return
             if outcome == "ok":
                 job.last_success, job.failures, job.error = end, 0, ""
                 job.detail = detail
