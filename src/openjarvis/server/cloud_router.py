@@ -66,6 +66,7 @@ def _load_keys() -> dict[str, str]:
         "OPENROUTER_API_KEY",
         "MINIMAX_API_KEY",
         "ATLASCLOUD_API_KEY",
+        "XAI_API_KEY",
     ):
         val = os.environ.get(name)
         if val:
@@ -84,6 +85,7 @@ def _load_keys() -> dict[str, str]:
                 "OPENROUTER_API_KEY",
                 "MINIMAX_API_KEY",
                 "ATLASCLOUD_API_KEY",
+                "XAI_API_KEY",
             ):
                 if name not in keys:
                     value = vault.get_password("OpenJarvis Cloud Keys", name)
@@ -94,8 +96,52 @@ def _load_keys() -> dict[str, str]:
     return keys
 
 
+# Subscription-backed official CLIs (billed to the user's existing plan, not
+# a metered API key). Model ids: "claude-code[:<model>]" / "codex-cli[:<model>]".
+_CLAUDE_CLI_PREFIX = "claude-code"
+_CODEX_CLI_PREFIX = "codex-cli"
+_XAI_PREFIXES = ("grok-",)
+SUBSCRIPTION_PROVIDERS = {"claude_cli", "codex_cli"}
+_CLI_TIMEOUT_SECONDS = 300
+
+
+def _cli_path(name: str) -> str | None:
+    """Locate an official CLI (PATH, then the default per-user installs)."""
+    import shutil
+    from pathlib import Path
+
+    found = shutil.which(name)
+    if found:
+        return found
+    home = Path.home()
+    candidates = {
+        "claude": [home / ".local" / "bin" / "claude.exe", home / ".local/bin/claude"],
+        "codex": [
+            Path(os.environ.get("APPDATA", "")) / "npm" / "codex.cmd",
+            home / ".npm-global" / "bin" / "codex",
+        ],
+    }.get(name, [])
+    return next((str(p) for p in candidates if p.is_file()), None)
+
+
+def _split_cli_model(model: str, prefix: str) -> str:
+    """'claude-code:opus' -> 'opus'; 'claude-code' -> ''."""
+    rest = model[len(prefix) :]
+    return rest[1:] if rest.startswith((":", "/")) else ""
+
+
 def get_provider(model: str) -> str | None:
     """Return the provider for a model name, or None if it's a local model."""
+    if model == _CLAUDE_CLI_PREFIX or model.startswith(
+        (_CLAUDE_CLI_PREFIX + ":", _CLAUDE_CLI_PREFIX + "/")
+    ):
+        return "claude_cli"
+    if model == _CODEX_CLI_PREFIX or model.startswith(
+        (_CODEX_CLI_PREFIX + ":", _CODEX_CLI_PREFIX + "/")
+    ):
+        return "codex_cli"
+    if any(model.startswith(p) for p in _XAI_PREFIXES):
+        return "xai"
     # Bare GPT-OSS names and Ollama tags are local, despite the "gpt-" prefix.
     # Provider-qualified IDs (e.g. "openai/gpt-oss-20b") still route to cloud.
     if model == "gpt-oss" or model.startswith(("gpt-oss:", "gpt-oss-")):
@@ -391,6 +437,167 @@ async def list_local_models() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _flatten_for_cli(messages: Sequence[Message]) -> tuple[str, str]:
+    """(system prompt, transcript prompt) for a one-shot CLI call."""
+    system = "\n\n".join(
+        m.content for m in messages if m.role.value == "system" and m.content
+    )
+    turns = [
+        f"{'User' if m.role.value == 'user' else 'Assistant'}: {m.content}"
+        for m in messages
+        if m.role.value in ("user", "assistant") and m.content
+    ]
+    if len(turns) == 1:
+        return system, turns[0].split(": ", 1)[1]
+    return system, (
+        "Conversation so far (continue it; reply only as the assistant):\n\n"
+        + "\n\n".join(turns)
+    )
+
+
+async def _stream_cli(
+    provider: str, model: str, messages: Sequence[Message]
+) -> AsyncIterator[str]:
+    """Run Claude Code / Codex CLI in a chat-only, no-tools mode."""
+    import asyncio
+    import tempfile
+    from pathlib import Path
+
+    system, prompt = _flatten_for_cli(messages)
+    with tempfile.TemporaryDirectory(prefix="oj-cli-") as workdir:
+        if provider == "claude_cli":
+            exe = _cli_path("claude")
+            if not exe:
+                raise ValueError(
+                    "Claude Code CLI not found; install it to use claude-code"
+                )
+            args = [exe, "-p", "--output-format", "text", "--no-session-persistence"]
+            args += ["--tools", ""]  # chat only: no file/shell/web tools
+            sub_model = _split_cli_model(model, _CLAUDE_CLI_PREFIX)
+            if sub_model:
+                args += ["--model", sub_model]
+            if system:
+                args += ["--append-system-prompt", system]
+            out_file = None
+        else:
+            exe = _cli_path("codex")
+            if not exe:
+                raise ValueError("Codex CLI not found; install @openai/codex")
+            out_file = Path(workdir) / "last.txt"
+            args = [
+                exe,
+                "exec",
+                "--sandbox",
+                "read-only",
+                "--skip-git-repo-check",
+                "--ephemeral",
+                "-C",
+                workdir,
+                "-o",
+                str(out_file),
+            ]
+            sub_model = _split_cli_model(model, _CODEX_CLI_PREFIX)
+            if sub_model:
+                args += ["-m", sub_model]
+            args.append("-")  # prompt on stdin
+            if system:
+                prompt = f"{system}\n\n{prompt}"
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=workdir,
+        )
+        try:
+            out, err = await asyncio.wait_for(
+                proc.communicate(prompt.encode("utf-8")), _CLI_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise ValueError(f"{provider} timed out after {_CLI_TIMEOUT_SECONDS}s")
+        if proc.returncode != 0:
+            detail = (err or out).decode("utf-8", "replace").strip()[-300:]
+            raise ValueError(f"{provider} failed: {detail or proc.returncode}")
+        if out_file is not None and out_file.is_file():
+            text = out_file.read_text(encoding="utf-8")
+        else:
+            text = out.decode("utf-8", "replace")
+    if text.strip():
+        yield text.strip()
+
+
+def provider_status() -> list[dict[str, Any]]:
+    """Which providers are usable right now, and how they're paid for.
+
+    Never returns key values. ``authorized`` reflects what is actually
+    configured on this machine; nothing here enables billing.
+    """
+    keys = _load_keys()
+    free_only = (get_config_dir() / "free-cloud-only").exists()
+    from pathlib import Path
+
+    claude_signed_in = (Path.home() / ".claude" / ".credentials.json").is_file()
+    codex_signed_in = (Path.home() / ".codex" / "auth.json").is_file()
+    rows: list[dict[str, Any]] = [
+        {
+            "id": "claude_cli",
+            "label": "Claude (Claude Code subscription)",
+            "billing": "subscription",
+            "installed": bool(_cli_path("claude")),
+            "authorized": bool(_cli_path("claude")) and claude_signed_in,
+            "models": ["claude-code", "claude-code:opus", "claude-code:sonnet"],
+        },
+        {
+            "id": "codex_cli",
+            "label": "Codex (ChatGPT subscription)",
+            "billing": "subscription",
+            "installed": bool(_cli_path("codex")),
+            "authorized": bool(_cli_path("codex")) and codex_signed_in,
+            "models": ["codex-cli"],
+        },
+    ]
+    metered = [
+        ("anthropic", "Claude API", "ANTHROPIC_API_KEY", ["claude-sonnet-4-5"]),
+        ("openai", "OpenAI API", "OPENAI_API_KEY", ["gpt-5", "gpt-4.1"]),
+        ("xai", "xAI Grok API", "XAI_API_KEY", ["grok-4", "grok-3-mini"]),
+        ("google", "Google Gemini API", "GEMINI_API_KEY", ["gemini-2.5-pro"]),
+        ("openrouter", "OpenRouter", "OPENROUTER_API_KEY", ["openrouter/free"]),
+    ]
+    for pid, label, key, models in metered:
+        has_key = bool(
+            keys.get(key) or (pid == "google" and keys.get("GOOGLE_API_KEY"))
+        )
+        rows.append(
+            {
+                "id": pid,
+                "label": label,
+                "billing": "metered_api",
+                "key_name": key,
+                "authorized": has_key,
+                "models": models,
+            }
+        )
+    for row in rows:
+        blocked = (
+            free_only and row["billing"] == "metered_api" and row["id"] != "openrouter"
+        )
+        row["blocked_by_free_only"] = blocked
+        if not row["authorized"]:
+            if row["billing"] == "subscription":
+                row["detail"] = (
+                    "Not installed" if not row.get("installed") else "Not signed in"
+                )
+            else:
+                row["detail"] = f"Needs {row['key_name']} (metered, pay-per-use)"
+        elif blocked:
+            row["detail"] = "Key found, but free-only mode blocks metered API use"
+        else:
+            row["detail"] = "Ready"
+        row["usable"] = row["authorized"] and not blocked
+    return rows
+
+
 async def stream_cloud(
     model: str,
     messages: Sequence[Message],
@@ -400,17 +607,38 @@ async def stream_cloud(
     """Stream tokens from a cloud provider for the given model."""
     provider = get_provider(model)
     if (get_config_dir() / "free-cloud-only").exists():
-        free_route = provider == "openrouter" and (
-            _openrouter_model_id(model).endswith(":free")
-            or _openrouter_model_id(model) == "openrouter/free"
+        # Subscription CLIs bill the user's existing plan, not a metered key,
+        # so they stay allowed; every metered API route stays blocked.
+        free_route = provider in SUBSCRIPTION_PROVIDERS or (
+            provider == "openrouter"
+            and (
+                _openrouter_model_id(model).endswith(":free")
+                or _openrouter_model_id(model) == "openrouter/free"
+            )
         )
         if not free_route:
             raise ValueError(
                 "Free-only mode: this API route is not verified free. "
-                "Use local Ollama or an OpenRouter free model."
+                "Use local Ollama, your Claude/Codex subscription, or an "
+                "OpenRouter free model."
             )
 
-    if provider == "openai":
+    if provider in SUBSCRIPTION_PROVIDERS:
+        async for token in _stream_cli(provider, model, messages):
+            yield token
+
+    elif provider == "xai":
+        async for token in _stream_openai(
+            model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.x.ai/v1",
+            api_key_name="XAI_API_KEY",
+        ):
+            yield token
+
+    elif provider == "openai":
         async for token in _stream_openai(model, messages, temperature, max_tokens):
             yield token
 

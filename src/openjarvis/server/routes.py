@@ -1250,6 +1250,30 @@ async def _handle_stream(
     )
 
 
+@router.get("/v1/providers")
+async def list_providers() -> dict:
+    """Model providers: billing kind (subscription/metered/local), whether
+    they're actually authorized here, and whether free-only mode blocks them.
+    Never includes key values."""
+    from openjarvis.server.cloud_router import provider_status
+
+    rows = await asyncio.to_thread(provider_status)
+    rows.insert(
+        0,
+        {
+            "id": "ollama",
+            "label": "Local (Ollama on this PC)",
+            "billing": "local",
+            "authorized": True,
+            "usable": True,
+            "blocked_by_free_only": False,
+            "detail": "Free, private, always available as fallback",
+            "models": [],
+        },
+    )
+    return {"providers": rows}
+
+
 @router.get("/v1/models")
 async def list_models(request: Request) -> ModelListResponse:
     """List selectable engine models for the installed-model picker.
@@ -1290,19 +1314,20 @@ async def list_models(request: Request) -> ModelListResponse:
     if active_model and active_model in model_ids:
         model_ids = [active_model] + [m for m in model_ids if m != active_model]
 
-    return ModelListResponse(
-        data=[
-            ModelObject(
-                id=mid,
-                owned_by=(
-                    _engine_key_for_model(engine, mid)
-                    if _engine_key_for_model(engine, mid) in ("litellm", "nim")
-                    else "openjarvis"
-                ),
-            )
-            for mid in model_ids
-        ],
-    )
+    data = [
+        ModelObject(
+            id=mid,
+            owned_by=(
+                _engine_key_for_model(engine, mid)
+                if _engine_key_for_model(engine, mid) in ("litellm", "nim")
+                else "openjarvis"
+            ),
+        )
+        for mid in model_ids
+    ]
+    # Subscription/cloud models are listed by GET /v1/providers (with their
+    # billing kind and authorization), not mixed into this engine list.
+    return ModelListResponse(data=data)
 
 
 @router.post("/v1/models/pull")
