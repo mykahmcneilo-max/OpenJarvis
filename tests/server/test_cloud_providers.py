@@ -144,3 +144,20 @@ def test_auto_ends_on_local_model_when_nothing_works(tmp_path: Path):
         patch.object(cloud_router, "stream_local", local),
     ):
         assert asyncio.run(run()) == ["local qwen3.5:9b"]
+
+
+def test_reads_keys_saved_by_the_desktop_app():
+    """The Rust keyring writes "<name>.<service>" as UTF-8 bytes."""
+
+    class Vault:
+        def _read_credential(self, target):
+            assert target == "GROQ_API_KEY.OpenJarvis Cloud Keys"
+            return {"CredentialBlob": b"gsk_test"}
+
+    assert cloud_router._read_desktop_vault_key(Vault(), "GROQ_API_KEY") == "gsk_test"
+
+    class Empty:
+        def _read_credential(self, target):
+            raise OSError("not found")
+
+    assert cloud_router._read_desktop_vault_key(Empty(), "GROQ_API_KEY") is None

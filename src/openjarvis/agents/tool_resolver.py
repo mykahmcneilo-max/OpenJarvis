@@ -262,6 +262,31 @@ def instantiate_registered_tool(
     return tool_cls(**file_tool_kwargs(name, app_config))
 
 
+# Read-only everyday tools the desktop chat has, so texting Jarvis can do the
+# same things. Nothing here runs commands, writes files or controls the PC:
+# a phone message must never get shell/file/browser control.
+EVERYDAY_TOOL_NAMES = (
+    "calendar_upcoming",
+    "calendar_search",
+    "calculator",
+    "weather",
+)
+
+
+def _everyday_tools() -> list[Any]:
+    ensure_registries_populated()
+    from openjarvis.core.registry import ToolRegistry
+
+    out = []
+    for name in EVERYDAY_TOOL_NAMES:
+        try:
+            if ToolRegistry.contains(name):
+                out.append(ToolRegistry.get(name)())
+        except Exception:  # missing optional dependency/config: skip it
+            continue
+    return out
+
+
 def build_deep_research_tools(
     engine: Any,
     model: str,
@@ -279,7 +304,7 @@ def build_deep_research_tools(
     web_search = WebSearchTool(engine="duckduckgo")
     path = Path(knowledge_db_path)
     if not path.exists():
-        return [web_search]
+        return [web_search, *_everyday_tools()]
 
     from openjarvis.connectors.retriever import TwoStageRetriever
     from openjarvis.connectors.store import KnowledgeStore
@@ -297,6 +322,7 @@ def build_deep_research_tools(
             ScanChunksTool(store=store, engine=engine, model=model),
             ThinkTool(),
             web_search,
+            *_everyday_tools(),
         ]
     except Exception:
         store.close()

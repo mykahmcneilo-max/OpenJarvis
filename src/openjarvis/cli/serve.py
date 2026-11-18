@@ -375,6 +375,24 @@ def serve(
         )
         sys.exit(1)
 
+    # Best-first failover ("jarvis-auto"): app chat, agents and iMessage all
+    # start at the best available model and move down the ranked list when
+    # one is out of credits or failing; the local model above is the last
+    # link. On when ~/.openjarvis/auto-failover exists (OPENJARVIS_AUTO_FAILOVER=0
+    # turns it off).
+    local_model_name = model_name
+    if (get_config_dir() / "auto-failover").exists() and os.environ.get(
+        "OPENJARVIS_AUTO_FAILOVER", "1"
+    ) != "0":
+        from openjarvis.engine.failover import AUTO_MODEL, FailoverEngine
+
+        engine = FailoverEngine(engine, local_model_name)
+        model_name = AUTO_MODEL
+        console.print(
+            f"  Models:    [cyan]{AUTO_MODEL}[/cyan] (best first, "
+            f"local {local_model_name} last)"
+        )
+
     # Set up the memory backend before resolving agent and channel tools so
     # storage/retrieval tools receive a live backend. ``context_from_memory``
     # controls only prompt-context injection, so disabling it must not leave
@@ -590,7 +608,7 @@ def serve(
         memory_service = build_memory_service(
             config,
             engine,
-            model_name,
+            local_model_name,  # background extraction stays local and free
             event_bus=bus,
         )
         if memory_service is not None:

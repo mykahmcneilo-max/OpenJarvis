@@ -85,3 +85,29 @@ def test_duplicate_agent_names_get_a_clear_answer():
         json={"model": "m", "messages": [{"role": "user", "content": "Hey Tony, go"}]},
     )
     assert "2 agents named Tony" in resp.json()["choices"][0]["message"]["content"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_router_only_cloud_models_skip_the_server_agent(stream):
+    """Groq & co. have no local engine; the agent must never get them."""
+    client = _client()
+    agent = MagicMock()
+    agent._tools = [MagicMock()]
+    client.app.state.agent = agent
+    client.app.state.agent_manager.list_agents.return_value = []
+
+    async def fake_stream(model, *a, **k):
+        yield f"{model} ok"
+
+    with patch("openjarvis.server.cloud_router.stream_cloud", fake_stream):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "groq/openai/gpt-oss-120b",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": stream,
+            },
+        )
+    assert resp.status_code == 200
+    assert "groq/openai/gpt-oss-120b ok" in resp.text
+    agent.run.assert_not_called()

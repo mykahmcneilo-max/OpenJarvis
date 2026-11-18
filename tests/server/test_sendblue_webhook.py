@@ -318,6 +318,7 @@ def test_photo_webhook_saves_media_logs_and_tracks_delivery(tmp_path, monkeypatc
     from openjarvis.server.webhook_routes import create_webhook_router
 
     monkeypatch.setattr(webhook_routes, "_media_dir", lambda: tmp_path)
+    monkeypatch.setattr(webhook_routes, "_CAPTION_WAIT_SECONDS", 0.1)
     monkeypatch.setattr(
         webhook_routes,
         "_track_delivery",
@@ -373,3 +374,54 @@ def test_photo_webhook_saves_media_logs_and_tracks_delivery(tmp_path, monkeypatc
     c.post("/webhooks/sendblue", json={**photo, "content": "again"})
     time.sleep(0.2)
     assert bridge.respond.call_count == 1
+
+
+def test_photo_then_caption_gets_one_reply_that_sees_the_photo(tmp_path, monkeypatch):
+    """iMessage sends a photo and its caption as two webhooks; they must be
+    answered together, once, with the photo attached to the caption."""
+    import time
+
+    from openjarvis.server import webhook_routes
+    from openjarvis.server.webhook_routes import create_webhook_router
+
+    monkeypatch.setattr(webhook_routes, "_media_dir", lambda: tmp_path)
+    monkeypatch.setattr(webhook_routes, "_CAPTION_WAIT_SECONDS", 5)
+    channel = MagicMock()
+    channel.webhook_secret = "S"
+    channel.fetch_media.return_value = (bytes([0x89]) + b"PNGdata", "image/png")
+    channel.send_message.return_value = {"ok": True, "handle": "", "error": ""}
+    bridge = MagicMock()
+    bridge._session_store = None
+    bridge.respond.return_value = {"content": "GTA ends tmrw", "agent": "Jarvis"}
+    app = FastAPI()
+    app.state.sendblue_channel = channel
+    app.include_router(create_webhook_router(bridge=bridge))
+    c = TestClient(app, headers={"sb-signing-secret": "S"})
+    import threading
+
+    # TestClient blocks until background work ends, so send the photo from a
+    # thread and the caption while the photo is still waiting for it.
+    photo = threading.Thread(
+        target=c.post,
+        args=("/webhooks/sendblue",),
+        kwargs={
+            "json": {
+                "from_number": "+1555",
+                "content": "",
+                "media_url": "https://x/p.png",
+            }
+        },
+    )
+    photo.start()
+    time.sleep(1)
+    c.post("/webhooks/sendblue", json={"from_number": "+1555", "content": "Read that"})
+    photo.join()
+    for _ in range(100):
+        if channel.send_message.call_count:
+            break
+        time.sleep(0.05)
+    time.sleep(0.3)
+    assert bridge.respond.call_count == 1
+    assert bridge.respond.call_args.args[1] == "Read that"
+    assert len(bridge.respond.call_args.kwargs["images"]) == 1
+    assert channel.send_message.call_count == 1

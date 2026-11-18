@@ -155,6 +155,18 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     return [combined_system, *non_system_messages]
 
 
+def _engine_serves_auto(engine) -> bool:
+    """True when the server engine runs jarvis-auto itself (failover engine)."""
+    from openjarvis.engine.failover import AUTO_MODEL
+
+    try:
+        return bool(engine is not None and engine.can_serve(AUTO_MODEL)) and (
+            getattr(engine, "engine_id", "") == "failover"
+        )
+    except Exception:
+        return False
+
+
 async def _subscription_cli_completion(request_body, model: str):
     """Non-streaming completion through a subscription CLI (Claude/Codex)."""
     import time as _time
@@ -288,11 +300,22 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     named = await _maybe_named_agent_reply(request_body, request, engine, model)
     if named is not None:
         return named
-    from openjarvis.server.cloud_router import SUBSCRIPTION_PROVIDERS, get_provider
+    from openjarvis.server.cloud_router import (
+        OPENAI_COMPAT,
+        SUBSCRIPTION_PROVIDERS,
+        get_provider,
+    )
 
-    # Subscription CLIs (Claude Code / Codex) have no local engine behind
-    # them: they always go through the cloud router, never the server agent.
-    subscription_cli = get_provider(model) in (SUBSCRIPTION_PROVIDERS | {"auto"})
+    # Subscription CLIs (Claude Code / Codex), jarvis-auto, xAI and the
+    # OpenAI-compatible providers (Groq, Cerebras, ...) have no local engine
+    # behind them: they always go through the cloud router, never the agent.
+    # jarvis-auto goes through the agent when the server engine is the
+    # failover engine (same tools/persona as iMessage); otherwise straight
+    # through the cloud router's chain.
+    router_only = SUBSCRIPTION_PROVIDERS | {"xai"} | set(OPENAI_COMPAT)
+    if not _engine_serves_auto(engine):
+        router_only = router_only | {"auto"}
+    subscription_cli = get_provider(model) in router_only
     if subscription_cli and not request_body.stream:
         return await _subscription_cli_completion(request_body, model)
     use_server_agent = (
@@ -861,7 +884,23 @@ def _handle_agent(
         ],
         usage=usage,
         complexity=complexity_info,
+        openjarvis=_answered_by(agent, model),
     )
+
+
+def _answered_by(agent, model: str):
+    """Which chain model answered a jarvis-auto turn (None otherwise)."""
+    from openjarvis.engine.failover import AUTO_MODEL
+
+    if model != AUTO_MODEL:
+        return None
+    from openjarvis.server.cloud_router import LAST_AUTO_MODEL
+
+    last = getattr(getattr(agent, "_engine", None), "last_model", "")
+    if not isinstance(last, str) or not last:
+        last = LAST_AUTO_MODEL["model"]
+    answered = last if isinstance(last, str) and last else model
+    return {"agent": "Jarvis", "model": answered}
 
 
 async def _handle_agent_stream(
@@ -954,6 +993,8 @@ async def _handle_agent_stream(
         finish_data["usage"] = response.usage.model_dump()
         if complexity_info is not None:
             finish_data["complexity"] = complexity_info.model_dump()
+        if response.openjarvis:
+            finish_data["openjarvis"] = response.openjarvis
         yield f"data: {_json.dumps(finish_data)}\n\n"
 
         _record_completed_exchange(

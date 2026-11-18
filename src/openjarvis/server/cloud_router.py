@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any, Sequence
 
 import httpx
@@ -49,6 +50,28 @@ _LOCAL_HF_ORGS = (
     "unsloth/",
     "lmstudio-community/",
 )
+
+
+def _read_desktop_vault_key(vault: Any, name: str) -> str | None:
+    """Read a key saved by the desktop app.
+
+    The app's Rust keyring stores "<name>.<service>" with UTF-8 bytes, while
+    Python keyring uses "<name>@<service>" with UTF-16, so check both.
+    """
+    try:
+        cred = vault._read_credential(f"{name}.OpenJarvis Cloud Keys")
+    except Exception:
+        return None
+    blob = (cred or {}).get("CredentialBlob")
+    if not blob:
+        return None
+    if isinstance(blob, str):
+        return blob
+    try:
+        text = blob.decode("utf-8")
+    except UnicodeDecodeError:
+        text = blob.decode("utf-16-le", errors="ignore")
+    return text.strip("\x00") or None
 
 
 def _load_keys() -> dict[str, str]:
@@ -100,7 +123,9 @@ def _load_keys() -> dict[str, str]:
                 *_COMPAT_KEY_NAMES,
             ):
                 if name not in keys:
-                    value = vault.get_password("OpenJarvis Cloud Keys", name)
+                    value = vault.get_password(
+                        "OpenJarvis Cloud Keys", name
+                    ) or _read_desktop_vault_key(vault, name)
                     if value:
                         keys[name] = value
         except ImportError:
@@ -117,7 +142,7 @@ SUBSCRIPTION_PROVIDERS = {"claude_cli", "codex_cli"}
 _CLI_TIMEOUT_SECONDS = 300
 
 # OpenAI-compatible providers: id -> (model prefix, base URL, key name, label).
-# Model ids are "<prefix><provider model id>", e.g. "groq/llama-3.3-70b-versatile".
+# Model ids are "<prefix><provider model id>", e.g. "groq/openai/gpt-oss-120b".
 OPENAI_COMPAT: dict[str, tuple[str, str, str, str]] = {
     "groq": ("groq/", "https://api.groq.com/openai/v1", "GROQ_API_KEY", "Groq"),
     "cerebras": (
@@ -159,7 +184,7 @@ DEFAULT_MODEL_CHAIN = [
     "kimi/kimi-k2-0905-preview",
     "deepseek-api/deepseek-chat",
     "mistral/mistral-large-latest",
-    "groq/llama-3.3-70b-versatile",
+    "groq/openai/gpt-oss-120b",
     "cerebras/llama-3.3-70b",
     "github/openai/gpt-4.1",
     "gemini-2.5-flash",
@@ -555,6 +580,77 @@ def _flatten_for_cli(messages: Sequence[Message]) -> tuple[str, str]:
     )
 
 
+def _cli_command(
+    provider: str, model: str, system: str, prompt: str, workdir: Path
+) -> tuple[list[str], str, Path | None]:
+    """(argv, stdin prompt, output file) for a chat-only CLI call."""
+    if provider == "claude_cli":
+        exe = _cli_path("claude")
+        if not exe:
+            raise ValueError("Claude Code CLI not found; install it to use claude-code")
+        args = [exe, "-p", "--output-format", "text", "--no-session-persistence"]
+        args += ["--tools", ""]  # chat only: no file/shell/web tools
+        sub_model = _split_cli_model(model, _CLAUDE_CLI_PREFIX)
+        if sub_model:
+            args += ["--model", sub_model]
+        if system:
+            args += ["--append-system-prompt", system]
+        return args, prompt, None
+    exe = _cli_path("codex")
+    if not exe:
+        raise ValueError("Codex CLI not found; install @openai/codex")
+    out_file = workdir / "last.txt"
+    args = [
+        exe,
+        "exec",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "-C",
+        str(workdir),
+        "-o",
+        str(out_file),
+    ]
+    sub_model = _split_cli_model(model, _CODEX_CLI_PREFIX)
+    if sub_model:
+        args += ["-m", sub_model]
+    args.append("-")  # prompt on stdin
+    if system:
+        prompt = f"{system}\n\n{prompt}"
+    return args, prompt, out_file
+
+
+def run_cli_sync(provider: str, model: str, system: str, prompt: str) -> str:
+    """Blocking one-shot CLI call (for engines called from worker threads)."""
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory(prefix="oj-cli-") as workdir:
+        args, stdin, out_file = _cli_command(
+            provider, model, system, prompt, Path(workdir)
+        )
+        try:
+            proc = subprocess.run(
+                args,
+                input=stdin.encode("utf-8"),
+                capture_output=True,
+                cwd=workdir,
+                timeout=_CLI_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError(
+                f"{provider} timed out after {_CLI_TIMEOUT_SECONDS}s"
+            ) from exc
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).decode("utf-8", "replace")
+            raise ValueError(f"{provider} failed: {detail.strip()[-300:]}")
+        if out_file is not None and out_file.is_file():
+            return out_file.read_text(encoding="utf-8").strip()
+        return proc.stdout.decode("utf-8", "replace").strip()
+
+
 async def _stream_cli(
     provider: str, model: str, messages: Sequence[Message]
 ) -> AsyncIterator[str]:
@@ -565,43 +661,9 @@ async def _stream_cli(
 
     system, prompt = _flatten_for_cli(messages)
     with tempfile.TemporaryDirectory(prefix="oj-cli-") as workdir:
-        if provider == "claude_cli":
-            exe = _cli_path("claude")
-            if not exe:
-                raise ValueError(
-                    "Claude Code CLI not found; install it to use claude-code"
-                )
-            args = [exe, "-p", "--output-format", "text", "--no-session-persistence"]
-            args += ["--tools", ""]  # chat only: no file/shell/web tools
-            sub_model = _split_cli_model(model, _CLAUDE_CLI_PREFIX)
-            if sub_model:
-                args += ["--model", sub_model]
-            if system:
-                args += ["--append-system-prompt", system]
-            out_file = None
-        else:
-            exe = _cli_path("codex")
-            if not exe:
-                raise ValueError("Codex CLI not found; install @openai/codex")
-            out_file = Path(workdir) / "last.txt"
-            args = [
-                exe,
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "-C",
-                workdir,
-                "-o",
-                str(out_file),
-            ]
-            sub_model = _split_cli_model(model, _CODEX_CLI_PREFIX)
-            if sub_model:
-                args += ["-m", sub_model]
-            args.append("-")  # prompt on stdin
-            if system:
-                prompt = f"{system}\n\n{prompt}"
+        args, prompt, out_file = _cli_command(
+            provider, model, system, prompt, Path(workdir)
+        )
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.PIPE,
@@ -719,7 +781,7 @@ def provider_status() -> list[dict[str, Any]]:
         ("openrouter", "OpenRouter", "OPENROUTER_API_KEY", ["openrouter/free"]),
     ]
     compat_models = {
-        "groq": ["groq/llama-3.3-70b-versatile", "groq/moonshotai/kimi-k2-instruct"],
+        "groq": ["groq/openai/gpt-oss-120b", "groq/qwen/qwen3.8-27b"],
         "cerebras": [
             "cerebras/llama-3.3-70b",
             "cerebras/qwen-3-235b-a22b-instruct-2507",

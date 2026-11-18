@@ -128,7 +128,9 @@ def test_deep_research_agent_gets_tools(tmp_path: Path) -> None:
     assert "knowledge_sql" in tool_ids
     assert "scan_chunks" in tool_ids
     assert "think" in tool_ids
-    assert len(tools) == 5
+    from openjarvis.agents.tool_resolver import EVERYDAY_TOOL_NAMES
+
+    assert len(tools) == 5 + len(EVERYDAY_TOOL_NAMES)
     assert "web_search" in tool_ids
     store.close()
 
@@ -144,7 +146,9 @@ def test_deep_research_tools_returns_empty_when_no_db() -> None:
         knowledge_db_path="/nonexistent/path/knowledge.db",
     )
 
-    assert [tool.tool_id for tool in tools] == ["web_search"]
+    from openjarvis.agents.tool_resolver import EVERYDAY_TOOL_NAMES
+
+    assert [tool.tool_id for tool in tools] == ["web_search", *EVERYDAY_TOOL_NAMES]
 
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")

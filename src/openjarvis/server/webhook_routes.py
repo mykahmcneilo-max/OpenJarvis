@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 # Seconds before a single "still on it" note is texted for a slow reply.
 _SLOW_REPLY_SECONDS = 90
+# iMessage sends a photo and its caption as two webhooks. A photo with no
+# text waits this long for the caption so the pair gets ONE reply.
+_CAPTION_WAIT_SECONDS = 6.0
 _FINAL_DELIVERY = {"DELIVERED", "ERROR", "DECLINED"}
 
 
@@ -486,7 +489,27 @@ def create_webhook_router(
 
             _sendblue_queues = {}
             _sendblue_queues["_lock"] = _th.Lock()
+            _sendblue_queues["_photos"] = {}  # sender -> photo awaiting caption
             request.app.state._sendblue_queues = _sendblue_queues
+
+        # Pair a photo with the caption that follows it (one reply, and the
+        # caption's answer can see the photo). Done here, in arrival order,
+        # not in the worker threads, which can start in either order.
+        import threading as _pair_th
+
+        photos = _sendblue_queues["_photos"]
+        my_photo = caption_for = None
+        with _sendblue_queues["_lock"]:
+            if media_url and not content.strip():
+                my_photo = photos[from_number] = {
+                    "images": [],
+                    "ready": _pair_th.Event(),
+                    "claimed": _pair_th.Event(),
+                }
+            elif content.strip():
+                caption_for = photos.pop(from_number, None)
+                if caption_for is not None:
+                    caption_for["claimed"].set()
 
         def _handle_and_reply() -> None:
             import threading
@@ -510,15 +533,26 @@ def create_webhook_router(
             reminder.start()
 
             store = getattr(active_bridge, "_session_store", None)
+
             images: list[str] = []
             attachments: list[dict] = []
             media_note = ""
-            if media_url:
-                try:
-                    images, attachments = _save_inbound_media(reply_channel, media_url)
-                except Exception as exc:  # never log the media URL itself
-                    logger.warning("SendBlue attachment rejected: %s", exc)
-                    media_note = f"[photo could not be loaded: {exc}]"
+            try:
+                if media_url:
+                    try:
+                        images, attachments = _save_inbound_media(
+                            reply_channel, media_url
+                        )
+                    except Exception as exc:  # never log the media URL itself
+                        logger.warning("SendBlue attachment rejected: %s", exc)
+                        media_note = f"[photo could not be loaded: {exc}]"
+            finally:
+                if my_photo is not None:
+                    my_photo["images"] = images
+                    my_photo["ready"].set()
+            if caption_for is not None:
+                caption_for["ready"].wait(60)
+                images = caption_for["images"] + images
             if store is not None:
                 store.log_message(
                     from_number,
@@ -529,6 +563,13 @@ def create_webhook_router(
                 )
 
             try:
+                if my_photo is not None and not media_note:
+                    my_photo["claimed"].wait(_CAPTION_WAIT_SECONDS)
+                    with lock:
+                        if photos.get(from_number) is my_photo:
+                            photos.pop(from_number)
+                        if my_photo["claimed"].is_set():
+                            return  # the caption's reply covers the photo
                 if media_note and not content.strip():
                     why = media_note[1:-1].split(": ", 1)[-1]
                     reply = {

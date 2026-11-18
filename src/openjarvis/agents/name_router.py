@@ -126,6 +126,8 @@ def model_supports_tools(engine: Any, model: str) -> bool:
 
 def model_supports_vision(engine: Any, model: str) -> bool:
     """True only when the model is known to accept images."""
+    if model == "jarvis-auto":  # failover picks a vision model for images
+        return True
     caps = model_capabilities(engine, model)
     return bool(caps) and "vision" in caps
 

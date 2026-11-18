@@ -72,6 +72,8 @@ class ChatCompletionResponse(BaseModel):
     choices: List[Choice] = Field(default_factory=list)
     usage: UsageInfo = Field(default_factory=UsageInfo)
     complexity: Optional[ComplexityInfo] = None
+    # {"agent", "model"}: who answered (e.g. which model jarvis-auto used).
+    openjarvis: Optional[Dict[str, str]] = None
 
 
 # ---------------------------------------------------------------------------

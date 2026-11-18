@@ -374,7 +374,14 @@ class ChannelBridge:
                     "Something broke on my end answering that "
                     f"({type(exc).__name__}). Try me again in a sec."
                 )
-            return _done(response_text, model=default_model)
+            # jarvis-auto reports which model in the chain actually answered.
+            answered = default_model
+            if default_model == "jarvis-auto":
+                from openjarvis.server.cloud_router import LAST_AUTO_MODEL
+
+                last = getattr(engine, "last_model", "") or LAST_AUTO_MODEL["model"]
+                answered = last if isinstance(last, str) and last else answered
+            return _done(response_text, model=answered)
         if self._system is not None:
             try:
                 result = self._system.ask(query)

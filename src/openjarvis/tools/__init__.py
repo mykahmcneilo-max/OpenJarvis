@@ -20,6 +20,7 @@ _BUILTIN_TOOL_MODULES = (
     "file_read",
     "web_search",
     "weather",
+    "free_weather",
     "fx_macro",
     "code_interpreter",
     "code_interpreter_docker",

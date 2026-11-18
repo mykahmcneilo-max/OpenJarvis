@@ -566,12 +566,15 @@ def test_executor_grants_deep_research_live_knowledge_tools(tmp_path):
         tools_by_name = {
             tool.spec.name: tool for tool in _CapturingToolAgent.captured_tools
         }
+        from openjarvis.agents.tool_resolver import EVERYDAY_TOOL_NAMES
+
         assert set(tools_by_name) == {
             "knowledge_search",
             "knowledge_sql",
             "scan_chunks",
             "think",
             "web_search",
+            *EVERYDAY_TOOL_NAMES,
         }
         result = _CapturingToolAgent.captured_search_result
         assert result is not None
