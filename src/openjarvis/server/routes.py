@@ -155,6 +155,40 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     return [combined_system, *non_system_messages]
 
 
+async def _subscription_cli_completion(request_body, model: str):
+    """Non-streaming completion through a subscription CLI (Claude/Codex)."""
+    import time as _time
+    import uuid as _uuid
+
+    from openjarvis.server.cloud_router import stream_cloud
+
+    messages = _to_messages(request_body.messages)
+    try:
+        text = "".join(
+            [
+                token
+                async for token in stream_cloud(
+                    model, messages, request_body.temperature, request_body.max_tokens
+                )
+            ]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "id": f"chatcmpl-{_uuid.uuid4().hex[:24]}",
+        "object": "chat.completion",
+        "created": int(_time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": text},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+
+
 async def _maybe_named_agent_reply(request_body, request: Request, engine, model):
     """Answer with a named agent when the last user turn addresses one.
 
@@ -250,8 +284,16 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     named = await _maybe_named_agent_reply(request_body, request, engine, model)
     if named is not None:
         return named
+    from openjarvis.server.cloud_router import SUBSCRIPTION_PROVIDERS, get_provider
+
+    # Subscription CLIs (Claude Code / Codex) have no local engine behind
+    # them: they always go through the cloud router, never the server agent.
+    subscription_cli = get_provider(model) in SUBSCRIPTION_PROVIDERS
+    if subscription_cli and not request_body.stream:
+        return await _subscription_cli_completion(request_body, model)
     use_server_agent = (
         agent is not None
+        and not subscription_cli
         and not request_body.tools
         and (not request_body.stream or bool(getattr(agent, "_tools", None)))
     )
