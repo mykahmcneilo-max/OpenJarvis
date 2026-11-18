@@ -113,8 +113,8 @@ class FreeWeatherTool(BaseTool):
         return ToolSpec(
             name="weather",
             description=(
-                "Live weather: current conditions plus today's and the next "
-                "2 days' highs/lows and rain chance, for any city or place. "
+                "Live weather: current conditions plus the next 7 days' "
+                "highs/lows and rain chance, for any city or place. "
                 "Use this for every weather question instead of web_search."
             ),
             parameters={
@@ -162,7 +162,7 @@ class FreeWeatherTool(BaseTool):
                     "temperature_unit": "celsius" if metric else "fahrenheit",
                     "wind_speed_unit": "kmh" if metric else "mph",
                     "timezone": "auto",
-                    "forecast_days": 3,
+                    "forecast_days": 7,
                 },
                 timeout=10,
             )

@@ -262,12 +262,14 @@ def instantiate_registered_tool(
     return tool_cls(**file_tool_kwargs(name, app_config))
 
 
-# Read-only everyday tools the desktop chat has, so texting Jarvis can do the
-# same things. Nothing here runs commands, writes files or controls the PC:
-# a phone message must never get shell/file/browser control.
+# Everyday tools the desktop chat has, so texting Jarvis can do the same
+# things. Nothing here runs commands, writes files or controls the PC: a
+# phone message must never get shell/file/browser control. The one write,
+# calendar_add, can only create an event (no edit/delete).
 EVERYDAY_TOOL_NAMES = (
     "calendar_upcoming",
     "calendar_search",
+    "calendar_add",
     "calculator",
     "weather",
 )

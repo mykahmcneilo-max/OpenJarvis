@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_LENGTH = 4000
 _SMS_MAX_LENGTH = 1600
 
+# A photo sent with no words. Flyers and event screenshots get looked up and
+# offered for the calendar, but never added without a yes.
+_PHOTO_ONLY_PROMPT = (
+    "(They sent this photo with no message.) If it's a flyer, ticket, invite "
+    "or anything with a date and time: use web_search to look the event up "
+    "for useful extra info (tickets/price, lineup, dress code, whether it "
+    "already happened), give the key details in a couple short texts, then "
+    "ask if they want it added to their schedule. Don't call calendar_add "
+    "until they say yes. If it's not an event, just react to the photo like "
+    "a friend would."
+)
+
 _HELP_TEXT = """\
 Available commands:
 /agents — list running agents
@@ -348,7 +360,7 @@ class ChannelBridge:
                     model=default_model,
                 )
 
-        query = content or "What's in this photo?"
+        query = content or _PHOTO_ONLY_PROMPT
         if images:
             # Small models otherwise claim they "can't see images" even while
             # describing the attached photo correctly.

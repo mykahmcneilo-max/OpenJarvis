@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 _SLOW_REPLY_SECONDS = 90
 # iMessage sends a photo and its caption as two webhooks. A photo with no
 # text waits this long for the caption so the pair gets ONE reply.
-_CAPTION_WAIT_SECONDS = 6.0
+_CAPTION_WAIT_SECONDS = 15.0
 _FINAL_DELIVERY = {"DELIVERED", "ERROR", "DECLINED"}
 
 
@@ -129,6 +130,46 @@ def _format_for_sms(text: str) -> str:
     # Collapse excessive blank lines
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+_MAX_BUBBLES = 5
+_BUBBLE_CHARS = 160
+
+
+def split_into_texts(text: str) -> list[str]:
+    """Break a reply into a few short texts, the way a person texts.
+
+    Blank lines separate texts; a long paragraph is split at sentence ends.
+    Lists stay in one bubble. At most ``_MAX_BUBBLES`` (the rest is joined
+    onto the last one) so a long answer doesn't become a flood.
+    """
+    import re
+
+    bubbles: list[str] = []
+    for para in re.split(r"\n\s*\n", text.strip()):
+        para = para.strip()
+        if not para:
+            continue
+        if len(para) <= _BUBBLE_CHARS or re.search(r"^\s*(- |\d+\. )", para, re.M):
+            bubbles.append(para)
+            continue
+        current = ""
+        for sentence in re.split(r"(?<=[.!?])\s+", para):
+            if current and len(current) + 1 + len(sentence) > _BUBBLE_CHARS:
+                bubbles.append(current)
+                current = sentence
+            else:
+                current = f"{current} {sentence}".strip()
+        if current:
+            bubbles.append(current)
+    if len(bubbles) > _MAX_BUBBLES:
+        bubbles = bubbles[: _MAX_BUBBLES - 1] + [" ".join(bubbles[_MAX_BUBBLES - 1 :])]
+    return bubbles or [text.strip()]
+
+
+def _typing_pause(bubble: str) -> float:
+    """Short gap before the next text so they arrive like someone typing."""
+    return min(2.5, 0.8 + len(bubble) / 120)
 
 
 def create_webhook_router(
@@ -500,16 +541,17 @@ def create_webhook_router(
         photos = _sendblue_queues["_photos"]
         my_photo = caption_for = None
         with _sendblue_queues["_lock"]:
+            # Any newer message from the sender takes over a photo (or burst
+            # of photos) still waiting, so the whole burst gets ONE reply.
+            caption_for = photos.pop(from_number, None)
+            if caption_for is not None:
+                caption_for["claimed"].set()
             if media_url and not content.strip():
                 my_photo = photos[from_number] = {
                     "images": [],
                     "ready": _pair_th.Event(),
                     "claimed": _pair_th.Event(),
                 }
-            elif content.strip():
-                caption_for = photos.pop(from_number, None)
-                if caption_for is not None:
-                    caption_for["claimed"].set()
 
         def _handle_and_reply() -> None:
             import threading
@@ -547,12 +589,12 @@ def create_webhook_router(
                         logger.warning("SendBlue attachment rejected: %s", exc)
                         media_note = f"[photo could not be loaded: {exc}]"
             finally:
+                if caption_for is not None:
+                    caption_for["ready"].wait(60)
+                    images = caption_for["images"] + images
                 if my_photo is not None:
                     my_photo["images"] = images
                     my_photo["ready"].set()
-            if caption_for is not None:
-                caption_for["ready"].wait(60)
-                images = caption_for["images"] + images
             if store is not None:
                 store.log_message(
                     from_number,
@@ -598,33 +640,42 @@ def create_webhook_router(
             response = reply.get("content", "")
             if not (response and reply_channel):
                 return
-            text = _format_for_sms(response)
-            sent = (
-                reply_channel.send_message(from_number, text)
-                if hasattr(reply_channel, "send_message")
-                else {"ok": reply_channel.send(from_number, text), "handle": ""}
-            )
-            row_id = None
-            if store is not None:
-                row_id = store.log_message(
-                    from_number,
-                    "sendblue",
-                    "assistant",
-                    response,
-                    agent=reply.get("agent", "Jarvis"),
-                    model=reply.get("model", ""),
-                    delivery_status=sent.get(
-                        "status", "SENT" if sent.get("ok") else "ERROR"
-                    ),
-                    delivery_error=sent.get("error", ""),
-                    message_handle=sent.get("handle", ""),
+            bubbles = split_into_texts(_format_for_sms(response))
+            for i, bubble in enumerate(bubbles):
+                if i:
+                    time.sleep(_typing_pause(bubble))
+                sent = (
+                    reply_channel.send_message(from_number, bubble)
+                    if hasattr(reply_channel, "send_message")
+                    else {"ok": reply_channel.send(from_number, bubble), "handle": ""}
                 )
-            if not sent.get("ok"):
-                logger.error("SendBlue reply not sent: %s", sent.get("error", ""))
-                return
-            # Confirm delivery: accepted by the API is not delivered.
-            if store is not None and row_id and sent.get("handle"):
-                _track_delivery(reply_channel, store, row_id, sent["handle"])
+                row_id = None
+                if store is not None:
+                    row_id = store.log_message(
+                        from_number,
+                        "sendblue",
+                        "assistant",
+                        bubble,
+                        agent=reply.get("agent", "Jarvis"),
+                        model=reply.get("model", ""),
+                        delivery_status=sent.get(
+                            "status", "SENT" if sent.get("ok") else "ERROR"
+                        ),
+                        delivery_error=sent.get("error", ""),
+                        message_handle=sent.get("handle", ""),
+                    )
+                if not sent.get("ok"):
+                    logger.error("SendBlue reply not sent: %s", sent.get("error", ""))
+                    return
+                # Confirm delivery: accepted by the API is not delivered.
+                if store is not None and row_id and sent.get("handle"):
+                    args = (reply_channel, store, row_id, sent["handle"])
+                    if i == len(bubbles) - 1:
+                        _track_delivery(*args)
+                    else:  # don't hold the next text for up to 2 minutes
+                        threading.Thread(
+                            target=_track_delivery, args=args, daemon=True
+                        ).start()
 
         task = asyncio.create_task(asyncio.to_thread(_handle_and_reply))
         task.add_done_callback(_log_task_exception)

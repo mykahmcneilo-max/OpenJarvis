@@ -425,3 +425,49 @@ def test_photo_then_caption_gets_one_reply_that_sees_the_photo(tmp_path, monkeyp
     assert bridge.respond.call_args.args[1] == "Read that"
     assert len(bridge.respond.call_args.kwargs["images"]) == 1
     assert channel.send_message.call_count == 1
+
+
+def test_burst_of_photos_then_caption_gets_one_reply_with_all_photos(
+    tmp_path, monkeypatch
+):
+    """Several flyers sent in a row plus a caption: one reply sees them all."""
+    import threading
+    import time
+
+    from openjarvis.server import webhook_routes
+    from openjarvis.server.webhook_routes import create_webhook_router
+
+    monkeypatch.setattr(webhook_routes, "_media_dir", lambda: tmp_path)
+    monkeypatch.setattr(webhook_routes, "_CAPTION_WAIT_SECONDS", 5)
+    channel = MagicMock()
+    channel.webhook_secret = "S"
+    channel.fetch_media.return_value = (bytes([0x89]) + b"PNGdata", "image/png")
+    channel.send_message.return_value = {"ok": True, "handle": "", "error": ""}
+    bridge = MagicMock()
+    bridge._session_store = None
+    bridge.respond.return_value = {"content": "Added all 3", "agent": "Jarvis"}
+    app = FastAPI()
+    app.state.sendblue_channel = channel
+    app.include_router(create_webhook_router(bridge=bridge))
+    c = TestClient(app, headers={"sb-signing-secret": "S"})
+
+    def photo(n):
+        c.post(
+            "/webhooks/sendblue",
+            json={"from_number": "+1555", "content": "", "media_url": f"https://x/{n}"},
+        )
+
+    threads = []
+    for n in range(3):
+        t = threading.Thread(target=photo, args=(n,))
+        t.start()
+        threads.append(t)
+        time.sleep(0.5)
+    c.post("/webhooks/sendblue", json={"from_number": "+1555", "content": "Add them"})
+    for t in threads:
+        t.join()
+    time.sleep(0.3)
+    assert bridge.respond.call_count == 1
+    assert bridge.respond.call_args.args[1] == "Add them"
+    assert len(bridge.respond.call_args.kwargs["images"]) == 3
+    assert channel.send_message.call_count == 1
