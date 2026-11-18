@@ -3375,6 +3375,20 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .on_page_load(|window, _| {
+            // Native assets ship in the executable; a PWA cache can hide repairs.
+            let _ = window.eval(r#"
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.getRegistrations().then(async registrations => {
+                        await Promise.all(registrations.map(r => r.unregister()));
+                        if (navigator.serviceWorker.controller && !sessionStorage.getItem('oj-native-cache-reset')) {
+                            sessionStorage.setItem('oj-native-cache-reset', '1');
+                            location.reload();
+                        }
+                    });
+                }
+            "#);
+        })
         .setup(move |app| {
             // System tray
             let show = MenuItemBuilder::with_id("show", "Show / Hide").build(app)?;

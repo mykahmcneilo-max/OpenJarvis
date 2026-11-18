@@ -23,6 +23,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      disable: !!process.env.TAURI_ENV_PLATFORM,
       registerType: 'autoUpdate',
       manifest: {
         name: 'OpenJarvis',
