@@ -52,20 +52,12 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
             for b in bindings:
                 if b.get("channel_type") != "sendblue":
                     continue
-                config = b.get("config", {})
-                api_key_id = config.get("api_key_id", "")
-                api_secret_key = config.get("api_secret_key", "")
-                from_number = config.get("from_number", "")
-                if not api_key_id or not api_secret_key:
-                    continue
-
                 from openjarvis.channels.sendblue import SendBlueChannel
 
-                sb = SendBlueChannel(
-                    api_key_id=api_key_id,
-                    api_secret_key=api_secret_key,
-                    from_number=from_number,
-                )
+                sb = SendBlueChannel.from_binding_config(b.get("config", {}))
+                from_number = sb._from_number
+                if not sb._api_key_id or not sb._api_secret_key:
+                    continue
                 sb.connect()
                 app.state.sendblue_channel = sb
 

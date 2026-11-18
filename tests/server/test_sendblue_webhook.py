@@ -167,6 +167,21 @@ class TestSendBlueWebhook:
         )
         assert resp.status_code == 200
 
+        # SendBlue's own header name -> accepted; wrong value -> rejected
+        msg = {"from_number": "+19127130720", "content": "Hi", "is_outbound": False}
+        resp = c.post(
+            "/webhooks/sendblue",
+            json={**msg, "message_handle": "msg-003"},
+            headers={"sb-signing-secret": "mysecret"},
+        )
+        assert resp.status_code == 200
+        resp = c.post(
+            "/webhooks/sendblue",
+            json=msg,
+            headers={"sb-signing-secret": "wrong"},
+        )
+        assert resp.status_code == 403
+
     def test_no_bridge_returns_200(self, sendblue_channel):
         """When no bridge exists, webhook should not crash."""
         from openjarvis.server.webhook_routes import create_webhook_router

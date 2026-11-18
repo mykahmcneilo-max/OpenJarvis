@@ -1848,6 +1848,13 @@ def create_agent_manager_router(
     ):
         if not manager.get_agent(agent_id):
             raise HTTPException(status_code=404, detail="Agent not found")
+        if req.channel_type == "sendblue":
+            # The inbound webhook fails closed without a secret, so mint one
+            # here and persist it with the binding (survives restarts).
+            import secrets as _secrets
+
+            req.config = dict(req.config or {})
+            req.config.setdefault("webhook_secret", _secrets.token_urlsafe(32))
         binding = manager.bind_channel(
             agent_id,
             channel_type=req.channel_type,
@@ -1912,21 +1919,15 @@ def create_agent_manager_router(
 
         # Initialize SendBlue channel if binding sendblue
         if req.channel_type == "sendblue":
+            from openjarvis.channels.sendblue import SendBlueChannel
+
             config = req.config or {}
-            api_key_id = config.get("api_key_id", "")
-            api_secret_key = config.get("api_secret_key", "")
-            from_number = config.get("from_number", "")
+            sb_channel = SendBlueChannel.from_binding_config(config)
+            api_key_id = sb_channel._api_key_id
+            api_secret_key = sb_channel._api_secret_key
+            from_number = sb_channel._from_number
             if api_key_id and api_secret_key:
                 try:
-                    from openjarvis.channels.sendblue import (
-                        SendBlueChannel,
-                    )
-
-                    sb_channel = SendBlueChannel(
-                        api_key_id=api_key_id,
-                        api_secret_key=api_secret_key,
-                        from_number=from_number,
-                    )
                     sb_channel.connect()
                     # Store on app state so webhook route can use it
                     request.app.state.sendblue_channel = sb_channel
@@ -2488,14 +2489,27 @@ def create_agent_manager_router(
     async def sendblue_register_webhook(request: Request):
         """Auto-register the /webhooks/sendblue endpoint with SendBlue."""
         body = await request.json()
-        api_key_id = body.get("api_key_id", "")
-        api_secret_key = body.get("api_secret_key", "")
+        bound = getattr(request.app.state, "sendblue_channel", None)
+        api_key_id = body.get("api_key_id", "") or getattr(bound, "_api_key_id", "")
+        api_secret_key = body.get("api_secret_key", "") or getattr(
+            bound, "_api_secret_key", ""
+        )
         webhook_url = body.get("webhook_url", "")
         if not webhook_url:
             raise HTTPException(
                 status_code=400,
                 detail="webhook_url is required",
             )
+        # Use the secret of the bound channel so SendBlue echoes it back
+        # and the inbound route can verify it.
+        webhook_secret = body.get("webhook_secret", "") or getattr(
+            getattr(request.app.state, "sendblue_channel", None),
+            "webhook_secret",
+            "",
+        )
+        hook: Dict[str, Any] = {"url": webhook_url}
+        if webhook_secret:
+            hook["secret"] = webhook_secret
 
         import httpx
 
@@ -2508,9 +2522,7 @@ def create_agent_manager_router(
                         "sb-api-secret-key": api_secret_key,
                         "Content-Type": "application/json",
                     },
-                    json={
-                        "receive": webhook_url,
-                    },
+                    json={"webhooks": [hook], "type": "receive"},
                 )
             return {
                 "registered": resp.status_code < 300,

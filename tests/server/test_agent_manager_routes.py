@@ -92,6 +92,47 @@ class TestAgentManagerRoutes:
         assert resp.status_code == 200
         assert resp.json()["registered"] is True
         instance.post.assert_awaited_once()
+        sent = instance.post.await_args.kwargs["json"]
+        assert sent == {
+            "webhooks": [{"url": "https://example.com/webhooks/sendblue"}],
+            "type": "receive",
+        }
+
+    def test_sendblue_register_webhook_includes_secret(self, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            instance = mock_client_cls.return_value.__aenter__.return_value
+            instance.post = AsyncMock(return_value=mock_resp)
+            client.post(
+                "/v1/channels/sendblue/register-webhook",
+                json={
+                    "api_key_id": "key-id",
+                    "api_secret_key": "secret",
+                    "webhook_url": "https://example.com/webhooks/sendblue",
+                    "webhook_secret": "s3cret",
+                },
+            )
+        hook = instance.post.await_args.kwargs["json"]["webhooks"][0]
+        assert hook["secret"] == "s3cret"
+
+    def test_sendblue_bind_generates_webhook_secret(self, client, manager):
+        agent_id = client.post("/v1/managed-agents", json={"name": "sb-agent"}).json()[
+            "id"
+        ]
+        with patch("openjarvis.channels.sendblue.SendBlueChannel.connect"):
+            resp = client.post(
+                f"/v1/managed-agents/{agent_id}/channels",
+                json={
+                    "channel_type": "sendblue",
+                    "config": {"api_key_id": "k", "api_secret_key": "s"},
+                },
+            )
+        assert resp.status_code < 300
+        (binding,) = manager.list_channel_bindings(agent_id)
+        assert len(binding["config"]["webhook_secret"]) >= 32
 
     def test_sendblue_test_message_uses_async_http_client(self, client):
         mock_resp = MagicMock()

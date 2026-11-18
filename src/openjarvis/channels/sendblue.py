@@ -67,6 +67,30 @@ class SendBlueChannel(BaseChannel):
         self._handlers: List[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
+    @classmethod
+    def from_binding_config(
+        cls, config: Dict[str, Any], *, bus: Optional[EventBus] = None
+    ) -> "SendBlueChannel":
+        """Build a channel from a stored binding config.
+
+        Accepts both key styles in use: ``api_key_id``/``api_secret_key``/
+        ``from_number`` (server API) and ``api_key``/``api_secret``/
+        ``phone_number`` (desktop app setup wizard).
+        """
+        number = str(config.get("from_number") or config.get("phone_number") or "")
+        number = number.strip()
+        if number.isdigit():
+            number = "+" + number
+        return cls(
+            api_key_id=config.get("api_key_id") or config.get("api_key") or "",
+            api_secret_key=(
+                config.get("api_secret_key") or config.get("api_secret") or ""
+            ),
+            from_number=number,
+            webhook_secret=config.get("webhook_secret", ""),
+            bus=bus,
+        )
+
     # -- connection lifecycle ---------------------------------------------------
 
     def connect(self) -> None:

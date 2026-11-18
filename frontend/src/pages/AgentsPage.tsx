@@ -2406,7 +2406,7 @@ function SendBlueWebhookStep({
     if (!webhookUrl.trim()) return;
     setWebhookStatus('registering');
     try {
-      const url = webhookUrl.trim().replace(/\/+$/, '') + '/v1/channels/sendblue/webhook';
+      const url = webhookUrl.trim().replace(/\/+$/, '') + '/webhooks/sendblue';
       await sendblueRegisterWebhook(apiKey, apiSecret, url);
       setWebhookStatus('done');
     } catch {

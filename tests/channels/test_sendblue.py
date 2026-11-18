@@ -264,3 +264,29 @@ class TestProperties:
     def test_from_number(self):
         ch = _make_channel(from_number="+15559876543")
         assert ch.from_number == "+15559876543"
+
+
+def test_from_binding_config_accepts_desktop_wizard_keys():
+    from openjarvis.channels.sendblue import SendBlueChannel
+
+    ch = SendBlueChannel.from_binding_config(
+        {
+            "api_key": "k",
+            "api_secret": "s",
+            "phone_number": "16452437121",
+            "webhook_secret": "w",
+        }
+    )
+    assert (ch._api_key_id, ch._api_secret_key) == ("k", "s")
+    assert ch._from_number == "+16452437121"
+    assert ch.webhook_secret == "w"
+
+
+def test_from_binding_config_accepts_server_keys():
+    from openjarvis.channels.sendblue import SendBlueChannel
+
+    ch = SendBlueChannel.from_binding_config(
+        {"api_key_id": "k", "api_secret_key": "s", "from_number": "+15550001111"}
+    )
+    assert (ch._api_key_id, ch._api_secret_key) == ("k", "s")
+    assert ch._from_number == "+15550001111"
