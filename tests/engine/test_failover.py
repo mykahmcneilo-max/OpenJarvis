@@ -27,6 +27,15 @@ TOOLS = [
 ]
 
 
+def test_new_rotation_keeps_vision_route_and_local_fallback():
+    vision = "openrouter/nvidia/nemotron-3.5-super-vl:free"
+    engine, _ = _engine(
+        ["codex-cli:gpt-6.2-astra", vision],
+        usable={"codex_cli": True, "openrouter": True},
+    )
+    assert engine.candidates(needs_vision=True) == [vision, "qwen3.5:9b"]
+
+
 def _resp(status: int, body: dict) -> httpx.Response:
     return httpx.Response(
         status, json=body, request=httpx.Request("POST", "https://x/chat")

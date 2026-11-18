@@ -68,7 +68,9 @@ def _read_desktop_vault_key(vault: Any, name: str) -> str | None:
     if isinstance(blob, str):
         return blob
     try:
-        text = blob.decode("utf-8")
+        # ASCII API keys encoded as UTF-16 also decode as UTF-8, with NULs.
+        encoding = "utf-16-le" if b"\x00" in blob else "utf-8"
+        text = blob.decode(encoding)
     except UnicodeDecodeError:
         text = blob.decode("utf-16-le", errors="ignore")
     return text.strip("\x00") or None
@@ -175,20 +177,19 @@ OPENAI_COMPAT: dict[str, tuple[str, str, str, str]] = {
 # "jarvis-auto" walks this chain, best first, skipping models that aren't
 # usable and moving on when one fails (quota/credits/rate limit/outage).
 AUTO_MODEL = "jarvis-auto"
+# Ranked usable routes checked 2026-11-18; local fallback follows this chain.
+# Fable requires additional credits here; Gemini 4 routes were not healthy.
 DEFAULT_MODEL_CHAIN = [
-    "claude-code:opus",
-    "codex-cli",
-    "claude-code:sonnet",
-    "gemini-3.8-flash",  # 3.x Pro has no free quota
-    "grok-4",
-    "kimi/kimi-k2-0905-preview",
-    "deepseek-api/deepseek-chat",
-    "mistral/mistral-large-latest",
+    "codex-cli:gpt-6.2-astra",
+    "claude-code:claude-opus-5-5",
+    "codex-cli:gpt-6.2-sol",
+    "claude-code:claude-sonnet-5-5",
+    "codex-cli:gpt-6.1-terra",
+    "claude-code:claude-haiku-5-5",
+    "groq/qwen/qwen3.8-27b",
+    "openrouter/nvidia/nemotron-3.5-super-vl:free",
+    "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
     "groq/openai/gpt-oss-120b",
-    "cerebras/llama-3.3-70b",
-    "github/openai/gpt-4.1",
-    "gemini-3.5-flash-lite",
-    "openrouter/openrouter/free",
 ]
 
 
@@ -368,6 +369,8 @@ async def _stream_openai(
     api_key = keys.get(api_key_name, "")
     if not api_key:
         raise ValueError(f"{api_key_name} not set — add it in the Cloud Models tab")
+    if any(ord(char) < 33 or ord(char) > 126 for char in api_key):
+        raise ValueError(f"{api_key_name} has invalid encoding; re-save it securely")
 
     payload = {
         "model": model,
@@ -757,7 +760,11 @@ def provider_status() -> list[dict[str, Any]]:
             "billing": "subscription",
             "installed": bool(_cli_path("claude")),
             "authorized": bool(_cli_path("claude")) and claude_signed_in,
-            "models": ["claude-code", "claude-code:opus", "claude-code:sonnet"],
+            "models": [
+                "claude-code:claude-opus-5-5",
+                "claude-code:claude-sonnet-5-5",
+                "claude-code:claude-haiku-5-5",
+            ],
         },
         {
             "id": "codex_cli",
@@ -765,7 +772,11 @@ def provider_status() -> list[dict[str, Any]]:
             "billing": "subscription",
             "installed": bool(_cli_path("codex")),
             "authorized": bool(_cli_path("codex")) and codex_signed_in,
-            "models": ["codex-cli"],
+            "models": [
+                "codex-cli:gpt-6.2-astra",
+                "codex-cli:gpt-6.2-sol",
+                "codex-cli:gpt-6.1-terra",
+            ],
         },
     ]
     metered = [

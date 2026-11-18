@@ -212,3 +212,13 @@ async def test_free_only_allows_openrouter_free_route(tmp_path, monkeypatch):
         async for part in cloud_router.stream_cloud("openrouter/openrouter/free", [])
     ]
     assert parts == ["free result"]
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16-le"])
+def test_desktop_vault_decodes_both_key_formats(encoding):
+    vault = SimpleNamespace(
+        _read_credential=lambda _: {
+            "CredentialBlob": "example-test-key".encode(encoding)
+        }
+    )
+    assert cloud_router._read_desktop_vault_key(vault, "TEST_KEY") == "example-test-key"

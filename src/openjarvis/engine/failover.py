@@ -63,6 +63,7 @@ _VISION_PREFIXES = (
     "claude-",
     "github/openai/gpt-4",
     "mistral/pixtral",
+    "openrouter/nvidia/nemotron-3.5-super-vl:free",
 )
 
 # How long to skip a model after it fails, by failure kind (seconds).

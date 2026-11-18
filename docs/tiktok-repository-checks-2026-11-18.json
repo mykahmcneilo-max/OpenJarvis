@@ -1,0 +1,104 @@
+{
+  "checked": "2026-11-18",
+  "collectionAdvertisedCount": 111,
+  "accessibleCaptionCount": 103,
+  "installationStatus": "Research only; no third-party code installed by this review",
+  "repositories": [
+    {
+      "repository": "sybil-solutions/inference-optimisation-skill",
+      "url": "https://github.com/sybil-solutions/inference-optimisation-skill",
+      "commit": "fda968e7fc1996aa23c67139c755fe541c9d4be0",
+      "lastCommit": "2026-11-16T18:40:03Z"
+    },
+    {
+      "repository": "helloianneo/ian-xiaohei-illustrations",
+      "url": "https://github.com/helloianneo/ian-xiaohei-illustrations",
+      "commit": "8961915fcdbca57f288ec52b173056501d8a87f2",
+      "lastCommit": "2026-10-27T01:41:17Z"
+    },
+    {
+      "repository": "DietrichGebert/ponytail",
+      "url": "https://github.com/DietrichGebert/ponytail",
+      "commit": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+      "lastCommit": "2026-10-29T11:59:31Z"
+    },
+    {
+      "repository": "Graphify-Labs/graphify",
+      "url": "https://github.com/Graphify-Labs/graphify",
+      "commit": "340268a70a83588d6b3c6de1fffb05326350ef1d",
+      "lastCommit": "2026-11-17T15:21:15Z"
+    },
+    {
+      "repository": "cheaper-inference/OmniRoute",
+      "url": "https://github.com/cheaper-inference/OmniRoute",
+      "commit": "bf3d1d941633a563351d16f9b8bf315a7e697610",
+      "lastCommit": "2026-11-18T16:36:03Z"
+    },
+    {
+      "repository": "obsidianmd/obsidian-skills",
+      "url": "https://github.com/obsidianmd/obsidian-skills",
+      "commit": "1c3f6df5683588e39b12462a75d1d0fcf550f955",
+      "lastCommit": "2026-11-17T22:37:11Z"
+    },
+    {
+      "repository": "pbakaus/impeccable",
+      "url": "https://github.com/pbakaus/impeccable",
+      "commit": "d41d9860b0094dcb68030657da63461212835aaa",
+      "lastCommit": "2026-11-16T00:41:50Z"
+    },
+    {
+      "repository": "enesozturk/dimensional-drawing",
+      "url": "https://github.com/enesozturk/dimensional-drawing",
+      "commit": "5c457437c8c83524308aad3b7443e81adcc13153",
+      "lastCommit": "2026-10-23T14:17:55Z"
+    },
+    {
+      "repository": "oil-oil/oil-ui",
+      "url": "https://github.com/oil-oil/oil-ui",
+      "commit": "78912134d52c24db8392fc94b504143191471710",
+      "lastCommit": "2026-11-18T08:59:31Z"
+    },
+    {
+      "repository": "emilkowalski/skills",
+      "url": "https://github.com/emilkowalski/skills",
+      "commit": "64eb3deb9a5fbfa041faf783e0bc3fd635872e9c",
+      "lastCommit": "2026-11-15T12:42:50Z"
+    },
+    {
+      "repository": "Leonxlnx/taste-skill",
+      "url": "https://github.com/Leonxlnx/taste-skill",
+      "commit": "f6b76575f949707b4e3c37cd86cb44b0b98643e8",
+      "lastCommit": "2026-11-07T12:33:21Z"
+    },
+    {
+      "repository": "fatihaydost/brand-identity-skill",
+      "url": "https://github.com/fatihaydost/brand-identity-skill",
+      "commit": "af7ba40fe067b8b4aaeb2af90ed6c8996d014791",
+      "lastCommit": "2026-11-15T19:22:30Z"
+    },
+    {
+      "repository": "INSANE0777/Awwwards-mcp",
+      "url": "https://github.com/INSANE0777/Awwwards-mcp",
+      "commit": "0560b94e646db37edcdba5249beeabf8c58ba6c7",
+      "lastCommit": "2026-11-16T19:01:34Z"
+    },
+    {
+      "repository": "NVIDIA/skillspector",
+      "url": "https://github.com/NVIDIA/skillspector",
+      "commit": "107a422ecbf230f5f867953c473bdd23155ea828",
+      "lastCommit": "2026-11-18T14:03:33Z"
+    },
+    {
+      "repository": "elvarofficial/teardown",
+      "url": "https://github.com/elvarofficial/teardown",
+      "commit": "a91262ac1109051e014662d42ecb0b7bc1f113b1",
+      "lastCommit": "2026-10-31T14:00:48Z"
+    },
+    {
+      "repository": "SaarthurR/atticus-mac",
+      "url": "https://github.com/SaarthurR/atticus-mac",
+      "commit": "5fcb8919d8702ab8b118d709e18c7166ffca3ee9",
+      "lastCommit": "2026-11-17T06:17:24Z"
+    }
+  ]
+}

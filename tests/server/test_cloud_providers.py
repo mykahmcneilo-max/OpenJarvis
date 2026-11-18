@@ -161,3 +161,12 @@ def test_reads_keys_saved_by_the_desktop_app():
             raise OSError("not found")
 
     assert cloud_router._read_desktop_vault_key(Empty(), "GROQ_API_KEY") is None
+
+
+def test_default_rotation_has_ten_unique_verified_routes(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_router, "get_config_dir", lambda: tmp_path)
+    chain = cloud_router.model_chain()
+    assert len(chain) == len(set(chain)) == 10
+    assert chain[0] == "codex-cli:gpt-6.2-astra"
+    assert all(cloud_router.get_provider(model) for model in chain)
+    assert not any("fable" in model for model in chain)
