@@ -5,10 +5,12 @@ import { Sidebar } from './Sidebar/Sidebar';
 import { SystemPulse } from './SystemPulse';
 import { useAppStore } from '../lib/store';
 import { checkHealth } from '../lib/api';
+import { useChannelConversationSync } from '../lib/channelSync';
 
 export function Layout() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const [apiReachable, setApiReachable] = useState<boolean | null>(null);
+  useChannelConversationSync();
 
   useEffect(() => {
     const check = () => checkHealth().then(setApiReachable);

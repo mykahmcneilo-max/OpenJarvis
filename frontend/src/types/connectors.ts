@@ -43,6 +43,29 @@ export interface ConnectorInfo {
   documents?: number;
   last_indexed_change?: string | null;
   oauth_setup?: OAuthSetupInfo | null;
+  /** "native" = connected here; "imported" = data imported from another device (e.g. your Mac). */
+  connection_kind?: 'native' | 'imported' | 'none';
+  import_status?: AutoSyncJob | Record<string, unknown> | null;
+}
+
+export interface AutoSyncJob {
+  id: string;
+  label: string;
+  kind: 'connector' | 'importer';
+  state: 'pending' | 'syncing' | 'ok' | 'error' | 'unavailable' | 'unknown';
+  last_success?: number | null;
+  last_attempt?: number | null;
+  next_run?: number;
+  failures?: number;
+  error?: string;
+  detail?: string;
+}
+
+export interface AutoSyncStatus {
+  available: boolean;
+  running: boolean;
+  interval_seconds?: number;
+  jobs: AutoSyncJob[];
 }
 
 export interface SyncStatus {

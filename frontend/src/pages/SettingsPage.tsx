@@ -34,8 +34,10 @@ import {
   saveToolCredentials,
   deleteToolCredential,
   isTauri,
+  fetchProviders,
   type InferenceSource,
   type MemoryStats,
+  type ProviderStatus,
 } from '../lib/api';
 import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
 
@@ -169,37 +171,48 @@ function ApiKeyInput({
   );
 }
 
-function CloudProviderStatus({ label, keyName }: { label: string; keyName: string }) {
-  const [hasKey, setHasKey] = useState(false);
-  const desktopKeyStorage = isTauri();
+const BILLING_LABEL: Record<ProviderStatus['billing'], string> = {
+  local: 'Local · free',
+  subscription: 'Subscription',
+  metered_api: 'Metered API',
+};
 
-  const refresh = useCallback(async () => {
-    if (!desktopKeyStorage) {
-      setHasKey(false);
-      return;
-    }
-    try {
-      const status = await getCloudKeyStatus();
-      setHasKey(!!status[keyName]);
-    } catch {
-      setHasKey(false);
-    }
-  }, [desktopKeyStorage, keyName]);
-
+/** Every provider with its real authorization state (never key values). */
+function ProviderStatusList() {
+  const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
+  const refresh = useCallback(() => {
+    fetchProviders().then(setProviders).catch(() => setProviders([]));
+  }, []);
   useEffect(() => {
-    void refresh();
+    refresh();
     window.addEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
     return () => window.removeEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
   }, [refresh]);
 
+  if (providers === null) {
+    return <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Checking…</span>;
+  }
+  if (!providers.length) {
+    return <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Provider status unavailable (is the Jarvis service running?)</span>;
+  }
   return (
-    <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-      <span style={{
-        width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
-        background: hasKey ? 'var(--color-success)' : 'var(--color-text-tertiary)',
-      }} />
-      {label}
-    </span>
+    <div className="flex flex-col gap-1.5 text-xs" style={{ minWidth: 280 }}>
+      {providers.map((p) => (
+        <div key={p.id} className="flex items-center justify-between gap-3">
+          <span className="flex items-center gap-1.5" style={{ color: 'var(--color-text-secondary)' }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
+              background: p.usable ? 'var(--color-success)' : 'var(--color-text-tertiary)',
+            }} />
+            {p.label}
+            <span style={{ color: 'var(--color-text-tertiary)' }}>· {BILLING_LABEL[p.billing]}</span>
+          </span>
+          <span style={{ color: p.usable ? 'var(--color-success)' : 'var(--color-text-tertiary)' }}>
+            {p.detail}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -646,20 +659,14 @@ export function SettingsPage() {
             <div className="text-xs mt-2 px-1" style={{ color: 'var(--color-text-tertiary)' }}>
               Run <code className="px-1 py-0.5 rounded text-[11px]" style={{ background: 'var(--color-bg-tertiary)' }}>ollama pull &lt;model-name&gt;</code> in your terminal to add more models
             </div>
-            <SettingRow label="Cloud providers" description="Green dot means API key is configured">
-              <div className="flex flex-wrap gap-3">
-                <CloudProviderStatus label="OpenAI" keyName="OPENAI_API_KEY" />
-                <CloudProviderStatus label="Anthropic" keyName="ANTHROPIC_API_KEY" />
-                <CloudProviderStatus label="Google" keyName="GEMINI_API_KEY" />
-                <CloudProviderStatus label="OpenRouter" keyName="OPENROUTER_API_KEY" />
-                <CloudProviderStatus label="Atlas Cloud" keyName="ATLASCLOUD_API_KEY" />
-              </div>
+            <SettingRow label="Providers" description="What's actually authorized on this PC, and how it's paid for">
+              <ProviderStatusList />
             </SettingRow>
           </Section>
 
           {/* API Keys */}
           <Section title="API Keys">
-            <p className="text-xs mb-3">Free-only mode is enabled on this PC. Local Ollama and OpenRouter free routes are allowed. Stored keys do not include a subscription or prove free API access; other API routes remain blocked until explicitly authorized.</p>
+            <p className="text-xs mb-3">Free-only mode is enabled on this PC. Local Ollama, your signed-in Claude Code / Codex subscriptions, and OpenRouter free routes are allowed. Metered API keys (OpenAI, Anthropic, Google, xAI…) bill per use and stay blocked until you explicitly turn free-only mode off.</p>
             <SettingRow label="OpenAI" description="GPT-4, GPT-3.5, etc.">
               <ApiKeyInput keyName="OPENAI_API_KEY" placeholder="sk-..." />
             </SettingRow>
@@ -677,6 +684,9 @@ export function SettingsPage() {
             </SettingRow>
             <SettingRow label="Atlas Cloud" description="Models routed through Atlas Cloud">
               <ApiKeyInput keyName="ATLASCLOUD_API_KEY" placeholder="Atlas Cloud API key" />
+            </SettingRow>
+            <SettingRow label="xAI Grok" description="Grok models (metered; blocked while free-only mode is on)">
+              <ApiKeyInput keyName="XAI_API_KEY" placeholder="xai-..." />
             </SettingRow>
           </Section>
 

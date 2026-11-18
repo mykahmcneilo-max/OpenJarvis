@@ -25,6 +25,28 @@ export interface CachedConnector {
   chunks: number;
   documents?: number;
   auth_type: string;
+  connection_kind?: 'native' | 'imported' | 'none';
+  import_status?: Record<string, unknown> | null;
+  last_indexed_change?: string | null;
+}
+
+/** Shape of GET /v1/channels/sendblue/conversations entries. */
+export interface RemoteChannelConversation {
+  id: string;
+  channel: string;
+  created_at: string;
+  updated_at: string;
+  messages: {
+    id: string;
+    role: string;
+    content: string;
+    attachments?: import('../types').MessageAttachment[];
+    agent?: string;
+    model?: string;
+    delivery_status?: string;
+    delivery_error?: string;
+    created_at: string;
+  }[];
 }
 
 export interface AgentEvent {
@@ -194,6 +216,8 @@ interface AppState {
   // Actions: conversations
   loadConversations: () => void;
   importOverlayConversation: () => Promise<void>;
+  /** Merge phone (iMessage) conversations from the server into the chat list. */
+  syncChannelConversations: (remote: RemoteChannelConversation[]) => void;
   createConversation: (model?: string) => string;
   selectConversation: (id: string) => void;
   deleteConversation: (id: string) => void;
@@ -208,6 +232,11 @@ interface AppState {
     audio?: { url: string },
     researchTraces?: ResearchSearchTrace[],
     researchSources?: ResearchSource[],
+  ) => void;
+  /** Record which agent/model actually produced the last reply. */
+  setLastAssistantMeta: (
+    conversationId: string,
+    meta: { agent: string; model?: string },
   ) => void;
   setStreamState: (state: Partial<StreamState>) => void;
   resetStream: () => void;
@@ -356,6 +385,52 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
+    syncChannelConversations: (remote: RemoteChannelConversation[]) => {
+      const store = loadConversations();
+      let changed = false;
+      for (const rc of remote) {
+        const prefix = `${rc.id}-`;
+        const serverMsgs: ChatMessage[] = rc.messages.map((m) => ({
+          id: m.id,
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content,
+          timestamp: Date.parse(m.created_at) || Date.now(),
+          attachments: m.attachments,
+          agent: m.agent || (m.role === 'assistant' ? 'Jarvis' : undefined),
+          model: m.model || undefined,
+          deliveryStatus: m.delivery_status || undefined,
+          deliveryError: m.delivery_error || undefined,
+          channel: 'imessage',
+        }));
+        const existing = store.conversations[rc.id];
+        // Keep messages typed on the desktop into this thread.
+        const localOnly = (existing?.messages ?? []).filter((m) => !m.id.startsWith(prefix));
+        const merged = [...serverMsgs, ...localOnly].sort((a, b) => a.timestamp - b.timestamp);
+        const updatedAt = merged.length ? merged[merged.length - 1].timestamp : Date.now();
+        const before = existing ? JSON.stringify(existing.messages) : '';
+        if (before === JSON.stringify(merged)) continue;
+        store.conversations[rc.id] = {
+          id: rc.id,
+          title: existing?.title && existing.title !== 'New chat' ? existing.title : 'iMessage with Jarvis',
+          createdAt: existing?.createdAt ?? (Date.parse(rc.created_at) || Date.now()),
+          updatedAt,
+          model: existing?.model || get().selectedModel || 'default',
+          messages: merged,
+          channel: 'imessage',
+        };
+        changed = true;
+      }
+      if (!changed) return;
+      saveConversations(store);
+      const activeId = get().activeId;
+      set({
+        conversations: Object.values(store.conversations).sort((a, b) => b.updatedAt - a.updatedAt),
+        ...(activeId && store.conversations[activeId]?.channel === 'imessage'
+          ? { messages: store.conversations[activeId].messages }
+          : {}),
+      });
+    },
+
     createConversation: (model?: string) => {
       const store = loadConversations();
       const conv: Conversation = {
@@ -474,6 +549,17 @@ export const useAppStore = create<AppState>((set, get) => {
           set({ messages: [...conv.messages] });
         }
       }
+    },
+
+    setLastAssistantMeta: (conversationId, meta) => {
+      const store = loadConversations();
+      const conv = store.conversations[conversationId];
+      const lastMsg = conv?.messages[conv.messages.length - 1];
+      if (!conv || !lastMsg || lastMsg.role !== 'assistant') return;
+      lastMsg.agent = meta.agent;
+      lastMsg.model = meta.model;
+      saveConversations(store);
+      if (get().activeId === conversationId) set({ messages: [...conv.messages] });
     },
 
     setStreamState: (partial: Partial<StreamState>) => {

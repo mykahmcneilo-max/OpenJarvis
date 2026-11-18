@@ -9,7 +9,9 @@ import {
   isTauri,
   getCloudKeyStatus,
   saveCloudKey,
+  fetchProviders,
 } from '../lib/api';
+import type { ProviderStatus } from '../lib/api';
 
 /** Popular models that users can download from the catalogue. */
 const CATALOGUE_MODELS = [
@@ -72,6 +74,14 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     ],
   },
   {
+    name: 'xAI Grok',
+    envKey: 'XAI_API_KEY',
+    models: [
+      { id: 'grok-4', desc: 'Grok 4 — most capable' },
+      { id: 'grok-3-mini', desc: 'Grok 3 Mini — fast, cheap' },
+    ],
+  },
+  {
     name: 'Atlas Cloud',
     envKey: 'ATLASCLOUD_API_KEY',
     models: [
@@ -83,6 +93,63 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
 ];
 
 type Tab = 'installed' | 'catalogue' | 'cloud';
+
+/**
+ * Signed-in subscription CLIs (Claude Code, Codex). These use the plan you
+ * already pay for — no API key, no metered billing — and show their real
+ * sign-in state from GET /v1/providers.
+ */
+function SubscriptionModels({
+  selectedModel,
+  onSelect,
+}: {
+  selectedModel: string;
+  onSelect: (id: string, owner: string) => void;
+}) {
+  const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
+  useEffect(() => {
+    fetchProviders().then(setProviders).catch(() => setProviders([]));
+  }, []);
+  const subs = (providers ?? []).filter((p) => p.billing === 'subscription');
+  return (
+    <div>
+      <div className="text-[11px] mb-1 font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+        Your subscriptions (no API key, no extra billing)
+      </div>
+      {providers === null && (
+        <div className="text-xs py-1" style={{ color: 'var(--color-text-tertiary)' }}>Checking sign-ins…</div>
+      )}
+      {subs.map((p) => (
+        <div key={p.id} className="py-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span style={{ color: 'var(--color-text)' }}>{p.label}</span>
+            <span style={{ color: p.usable ? 'var(--color-success)' : 'var(--color-text-tertiary)' }}>
+              {p.usable ? 'Signed in' : p.detail}
+            </span>
+          </div>
+          {p.usable && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {p.models.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => onSelect(m, p.id)}
+                  className="text-[11px] px-2 py-0.5 rounded cursor-pointer"
+                  style={{
+                    border: '1px solid var(--color-border)',
+                    background: m === selectedModel ? 'var(--color-bg-tertiary)' : 'transparent',
+                    color: 'var(--color-text-secondary)',
+                  }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function CommandPalette() {
   const [query, setQuery] = useState('');
@@ -465,6 +532,13 @@ export function CommandPalette() {
           ) : (
             /* ── Cloud Models tab ── */
             <div className="px-4 py-2">
+              <SubscriptionModels
+                selectedModel={selectedModel}
+                onSelect={(id, owner) => handleSelect(id, owner)}
+              />
+              <div className="text-[11px] mb-1 mt-3 font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                Metered API (pay per use)
+              </div>
               <div className="text-[11px] mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
                 {desktopKeyStorage
                   ? 'Add your API keys to use cloud models. Keys are stored in secure desktop storage.'

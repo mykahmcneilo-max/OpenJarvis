@@ -193,6 +193,25 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   return data.data || [];
 }
 
+/** A model provider and whether it's actually usable here (GET /v1/providers). */
+export interface ProviderStatus {
+  id: string;
+  label: string;
+  billing: 'local' | 'subscription' | 'metered_api';
+  authorized: boolean;
+  usable: boolean;
+  blocked_by_free_only: boolean;
+  detail: string;
+  models: string[];
+  key_name?: string;
+}
+
+export async function fetchProviders(): Promise<ProviderStatus[]> {
+  const res = await apiFetch('/v1/providers');
+  if (!res.ok) throw new Error(`Failed to fetch providers: ${res.status}`);
+  return (await res.json()).providers || [];
+}
+
 export async function fetchRecommendedModel(): Promise<{ model: string; reason: string }> {
   const res = await apiFetch(`/v1/recommended-model`);
   if (!res.ok) return { model: '', reason: 'Failed to fetch' };

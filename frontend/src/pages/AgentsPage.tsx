@@ -1463,6 +1463,7 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
       : 'var(--color-text-tertiary)';
 
   const rows: [string, React.ReactNode][] = [
+    ['Call by', <AgentNameEditor key="cb" agent={agent} onAgentUpdated={onAgentUpdated} />],
     ['Intelligence', editingModel ? (
       changingModel ? (
         <span className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Switching model...</span>
@@ -1535,6 +1536,84 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Name + aliases used to call this agent in chat ("Hey Tony, ...").
+ * Identity only: the model is changed separately under "Intelligence".
+ */
+function AgentNameEditor({ agent, onAgentUpdated }: { agent: ManagedAgent; onAgentUpdated: () => void }) {
+  const currentAliases = Array.isArray((agent.config as Record<string, unknown> | undefined)?.aliases)
+    ? ((agent.config as Record<string, unknown>).aliases as string[])
+    : [];
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(agent.name);
+  const [aliases, setAliases] = useState(currentAliases.join(', '));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      const list = aliases.split(',').map((a) => a.trim()).filter(Boolean);
+      await updateManagedAgent(agent.id, {
+        name: trimmed,
+        config: { ...(agent.config || {}), aliases: list },
+      });
+      onAgentUpdated();
+      toast.success(`Say "Hey ${trimmed}, …" to call this agent`);
+      setEditing(false);
+    } catch {
+      toast.error('Could not save the name');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span className="flex items-center gap-2">
+        <span style={{ color: 'var(--color-text)' }}>
+          "Hey {agent.name}, …"{currentAliases.length > 0 && ` · also: ${currentAliases.join(', ')}`}
+        </span>
+        <button
+          onClick={() => setEditing(true)}
+          className="text-xs px-2 py-0.5 rounded cursor-pointer"
+          style={{ color: 'var(--color-accent)', border: '1px solid var(--color-accent)', opacity: 0.8 }}
+        >
+          Edit
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <input
+        aria-label="Agent name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="text-sm rounded px-1.5 py-0.5 w-28"
+        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+      />
+      <input
+        aria-label="Aliases (comma separated)"
+        placeholder="aliases, comma separated"
+        value={aliases}
+        onChange={(e) => setAliases(e.target.value)}
+        className="text-sm rounded px-1.5 py-0.5 w-44"
+        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+      />
+      <button onClick={save} disabled={saving || !name.trim()} className="text-xs px-2 py-0.5 rounded cursor-pointer"
+        style={{ color: 'var(--color-accent)', border: '1px solid var(--color-accent)' }}>
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+      <button onClick={() => setEditing(false)} className="text-xs px-2 py-0.5 rounded cursor-pointer"
+        style={{ color: 'var(--color-text-tertiary)' }}>
+        Cancel
+      </button>
+    </span>
   );
 }
 

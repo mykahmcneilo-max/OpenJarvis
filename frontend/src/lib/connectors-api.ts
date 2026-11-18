@@ -1,5 +1,5 @@
 import { apiFetch, getBase } from './api';
-import type { ConnectorInfo, SyncStatus, ConnectRequest, ConnectResponse } from '../types/connectors';
+import type { AutoSyncStatus, ConnectorInfo, SyncStatus, ConnectRequest, ConnectResponse } from '../types/connectors';
 
 // ---------------------------------------------------------------------------
 // Connectors API
@@ -142,6 +142,13 @@ export async function disconnectSourceUntilComplete(
       await waitForDisconnectRetry(retryDelayMs, signal);
     }
   }
+}
+
+/** Background auto-sync state for every source (GET /v1/sync/status). */
+export async function getAutoSyncStatus(): Promise<AutoSyncStatus> {
+  const res = await apiFetch('/v1/sync/status');
+  if (!res.ok) throw new Error(`Failed to get auto-sync status: ${res.status}`);
+  return res.json();
 }
 
 export async function getSyncStatus(id: string): Promise<SyncStatus> {

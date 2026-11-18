@@ -224,6 +224,8 @@ export function InputArea() {
     let usage: TokenUsage | undefined;
     let complexity: { score: number; tier: string; suggested_max_tokens: number } | undefined;
     let routedEngine: string | undefined;
+    // Set when a named agent ("Hey Tony, ...") answered instead of Jarvis.
+    let answeredBy: { agent: string; model?: string } | undefined;
     const toolCalls: ToolCallInfo[] = [];
     const researchTraces: ResearchSearchTrace[] = [];
     const researchSourcesByRef = new Map<number, ResearchSource>();
@@ -433,6 +435,9 @@ export function InputArea() {
             if (data.usage) usage = data.usage;
             if (data.complexity) complexity = data.complexity;
             routedEngine = engineFromCompletionChunk(data) ?? routedEngine;
+            if (data.openjarvis?.agent) {
+              answeredBy = { agent: data.openjarvis.agent, model: data.openjarvis.model || undefined };
+            }
             if (delta?.content) {
               if (!ttftMs) ttftMs = Date.now() - startTime;
               accumulatedContent += delta.content;
@@ -518,6 +523,10 @@ export function InputArea() {
         researchTraces.length > 0 ? researchTraces : undefined,
         researchSourcesByRef.size > 0 ? flushSources() : undefined,
       );
+      useAppStore.getState().setLastAssistantMeta(convId, {
+        agent: answeredBy?.agent ?? 'Jarvis',
+        model: answeredBy?.model ?? selectedModel,
+      });
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;

@@ -127,6 +127,23 @@ export interface ChatMessage {
   usage?: TokenUsage;
   telemetry?: MessageTelemetry;
   audio?: { url: string };
+  /** Photos/files attached to the message (e.g. sent over iMessage). */
+  attachments?: MessageAttachment[];
+  /** Who actually answered (e.g. "Jarvis", "Tony") and on which model. */
+  agent?: string;
+  model?: string;
+  /** Phone channel delivery as reported by the carrier service. */
+  deliveryStatus?: string;
+  deliveryError?: string;
+  /** Message came in/out through a phone channel. */
+  channel?: 'imessage';
+}
+
+export interface MessageAttachment {
+  id: string;
+  type: string;
+  kind: 'image' | 'file';
+  size?: number;
 }
 
 export interface Conversation {
@@ -136,6 +153,8 @@ export interface Conversation {
   updatedAt: number;
   model: string;
   messages: ChatMessage[];
+  /** Set for conversations that live on a phone channel. */
+  channel?: 'imessage';
 }
 
 export interface ConversationStore {

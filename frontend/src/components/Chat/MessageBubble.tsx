@@ -14,6 +14,7 @@ import { XRayFooter } from './XRayFooter';
 import { SpeakMessageButton } from './SpeakMessageButton';
 import type { ChatMessage } from '../../types';
 import { stripThinkTags } from '../../lib/message-text';
+import { channelMediaUrl } from '../../lib/channelMedia';
 
 interface Props {
   message: ChatMessage;
@@ -109,6 +110,65 @@ function CopyMessageButton({ content }: { content: string }) {
   );
 }
 
+function Attachments({ items }: { items: NonNullable<ChatMessage['attachments']> }) {
+  return (
+    <div className="flex flex-wrap gap-2 mb-1.5">
+      {items.map((a) =>
+        a.kind === 'image' ? (
+          <a key={a.id} href={channelMediaUrl(a.id)} target="_blank" rel="noreferrer">
+            <img
+              src={channelMediaUrl(a.id)}
+              alt="Attached photo"
+              loading="lazy"
+              className="max-h-56 max-w-[240px] rounded-lg object-cover"
+              style={{ border: '1px solid var(--color-border)' }}
+            />
+          </a>
+        ) : (
+          <span key={a.id} className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+            Attachment ({a.type})
+          </span>
+        ),
+      )}
+    </div>
+  );
+}
+
+const DELIVERY_LABEL: Record<string, string> = {
+  DELIVERED: 'Delivered',
+  SENT: 'Sent',
+  QUEUED: 'Sending…',
+  ACCEPTED: 'Sending…',
+  PENDING: 'Sending…',
+  REGISTERED: 'Sending…',
+  ERROR: 'Not delivered',
+  DECLINED: 'Not delivered',
+};
+
+function MessageMeta({ message }: { message: ChatMessage }) {
+  const parts: string[] = [];
+  if (message.role === 'assistant' && (message.agent || message.model)) {
+    parts.push([message.agent || 'Jarvis', message.model].filter(Boolean).join(' · '));
+  }
+  if (message.channel === 'imessage') {
+    parts.push('iMessage');
+    if (message.role === 'assistant' && message.deliveryStatus) {
+      parts.push(DELIVERY_LABEL[message.deliveryStatus] ?? message.deliveryStatus);
+    }
+  }
+  if (!parts.length) return null;
+  const failed = message.deliveryStatus === 'ERROR' || message.deliveryStatus === 'DECLINED';
+  return (
+    <div
+      className="text-[11px] mt-1"
+      style={{ color: failed ? 'var(--color-error)' : 'var(--color-text-tertiary)' }}
+      title={failed && message.deliveryError ? message.deliveryError : undefined}
+    >
+      {parts.join(' · ')}
+    </div>
+  );
+}
+
 export function MessageBubble({ message, isLive = false }: Props) {
   const isUser = message.role === 'user';
 
@@ -132,20 +192,26 @@ export function MessageBubble({ message, isLive = false }: Props) {
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-4">
-        <div
-          dir="auto"
-          className="max-w-[85%] px-4 py-2.5 text-sm leading-relaxed"
-          style={{
-            background: 'var(--color-user-bubble)',
-            color: 'var(--color-user-bubble-text)',
-            borderRadius: 'var(--radius-xl) var(--radius-xl) var(--radius-sm) var(--radius-xl)',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}
-        >
-          {message.content}
-        </div>
+      <div className="flex flex-col items-end mb-4">
+        {message.attachments && message.attachments.length > 0 && (
+          <Attachments items={message.attachments} />
+        )}
+        {message.content && (
+          <div
+            dir="auto"
+            className="max-w-[85%] px-4 py-2.5 text-sm leading-relaxed"
+            style={{
+              background: 'var(--color-user-bubble)',
+              color: 'var(--color-user-bubble-text)',
+              borderRadius: 'var(--radius-xl) var(--radius-xl) var(--radius-sm) var(--radius-xl)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {message.content}
+          </div>
+        )}
+        <MessageMeta message={message} />
       </div>
     );
   }
@@ -188,6 +254,8 @@ export function MessageBubble({ message, isLive = false }: Props) {
           </ReactMarkdown>
         </div>
       )}
+
+      <MessageMeta message={message} />
 
       {/* Footer: copy + read aloud + x-ray */}
       <div className="flex items-center gap-2 mt-1.5">

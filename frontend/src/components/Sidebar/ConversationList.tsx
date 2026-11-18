@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react';
+import { MessageCircle, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { useAppStore } from '../../lib/store';
 
@@ -77,7 +77,16 @@ export function ConversationList({ searchQuery }: Props) {
               >
                 {conv.title}
               </div>
-              <div className="text-[11px] mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
+              <div className="text-[11px] mt-0.5 flex items-center gap-1.5" style={{ color: 'var(--color-text-tertiary)' }}>
+                {conv.channel === 'imessage' && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded px-1 py-px text-[10px] font-medium"
+                    style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-accent)' }}
+                    title="This conversation happens over iMessage"
+                  >
+                    <MessageCircle size={10} aria-hidden="true" /> iMessage
+                  </span>
+                )}
                 {formatRelativeTime(conv.updatedAt)}
               </div>
             </button>

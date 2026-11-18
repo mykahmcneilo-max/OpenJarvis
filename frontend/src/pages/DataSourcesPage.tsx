@@ -23,8 +23,8 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
-import type { ConnectRequest, ConnectorInfo, ConnectorMeta, SyncStatus, OAuthSetupInfo } from '../types/connectors';
-import { listConnectors, connectSource, disconnectSourceUntilComplete, getConnector, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
+import type { AutoSyncJob, AutoSyncStatus, ConnectRequest, ConnectorInfo, ConnectorMeta, SyncStatus, OAuthSetupInfo } from '../types/connectors';
+import { listConnectors, connectSource, disconnectSourceUntilComplete, getAutoSyncStatus, getConnector, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
 
 // ---------------------------------------------------------------------------
 // Inline connect form (reused from AgentsPage pattern)
@@ -834,6 +834,55 @@ export function SyncStatusDisplay({
   );
 }
 
+/** Which auto-sync job feeds an imported source. */
+function importJobFor(connectorId: string): string {
+  if (['imessage', 'apple_notes', 'apple_contacts', 'apple_calendar'].includes(connectorId)) return 'apple';
+  return connectorId;
+}
+
+function agoLabel(epochSeconds?: number | null): string | null {
+  if (!epochSeconds) return null;
+  return formatTimeAgo(new Date(epochSeconds * 1000).toISOString());
+}
+
+/** Auto-sync state line shown under each connected source. */
+function AutoSyncLine({ job }: { job: AutoSyncJob }) {
+  const last = agoLabel(job.last_success);
+  let text: string;
+  let color = 'var(--color-text-tertiary)';
+  if (job.state === 'syncing') text = 'Auto-sync running now…';
+  else if (job.state === 'error') {
+    text = `Auto-sync failed${job.failures && job.failures > 1 ? ` ${job.failures}× in a row` : ''}: ${job.error || 'unknown error'}`;
+    color = 'var(--color-error)';
+  } else if (job.state === 'unavailable') text = job.detail || 'Fresh import unavailable right now';
+  else text = last ? `Auto-sync · last successful ${last}` : 'Auto-sync scheduled';
+  if (job.state !== 'error' && job.state !== 'unavailable' && last && job.state === 'syncing') {
+    text += ` (last successful ${last})`;
+  }
+  return <div style={{ fontSize: 11, color, marginTop: 4 }}>{text}</div>;
+}
+
+/** Status for data imported from another device (e.g. Apple data from the Mac). */
+function ImportedSourceStatus({
+  documents, unitLabel, lastIndexed, job,
+}: {
+  documents: number;
+  unitLabel: string;
+  lastIndexed?: string | null;
+  job?: AutoSyncJob;
+}) {
+  const changed = formatTimeAgo(lastIndexed);
+  return (
+    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>
+      <span style={{ color: 'var(--color-success)' }}>
+        {documents.toLocaleString()} {unitLabel}
+      </span>
+      {' '}· imported from your Mac{changed ? ` · last change ${changed}` : ''}
+      {job && <AutoSyncLine job={job} />}
+    </div>
+  );
+}
+
 export function DataSourcesSection({ showSetup = false }: { showSetup?: boolean }) {
   const cachedConnectors = useAppStore((s) => s.cachedConnectors);
   const setCachedConnectors = useAppStore((s) => s.setCachedConnectors);
@@ -857,6 +906,9 @@ export function DataSourcesSection({ showSetup = false }: { showSetup?: boolean 
           chunks: (c as any).chunks || 0,
           documents: c.documents,
           auth_type: c.auth_type,
+          connection_kind: c.connection_kind,
+          import_status: (c.import_status as Record<string, unknown> | null) ?? null,
+          last_indexed_change: c.last_indexed_change ?? null,
         })),
       );
     } catch {
@@ -867,8 +919,21 @@ export function DataSourcesSection({ showSetup = false }: { showSetup?: boolean 
   const setConnectors = setCachedConnectors;
 
   // Poll sync status for connected sources
+  const [autoSyncJobs, setAutoSyncJobs] = useState<Record<string, AutoSyncJob>>({});
+  useEffect(() => {
+    let active = true;
+    const refresh = () =>
+      getAutoSyncStatus()
+        .then((s) => active && setAutoSyncJobs(Object.fromEntries(s.jobs.map((j) => [j.id, j]))))
+        .catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 15000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
+
   const loadSyncStatuses = useCallback(async () => {
-    const connected = connectors.filter((c) => c.connected);
+    // Imported sources (e.g. from the Mac) have no live connector here.
+    const connected = connectors.filter((c) => c.connected && c.connection_kind !== 'imported');
     const statuses: Record<string, SyncStatus> = {};
     await Promise.all(
       connected.map(async (c) => {
@@ -1105,22 +1170,34 @@ export function DataSourcesSection({ showSetup = false }: { showSetup?: boolean 
                     <div className="font-semibold" style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)' }}>
                       {meta?.display_name ?? c.display_name}
                     </div>
-                    <SyncStatusDisplay
-                      chunks={c.chunks}
-                      documents={c.documents}
-                      sync={sync}
-                      unitLabel={unit}
-                      connectorId={c.connector_id}
-                      disabled={connectorActionsBusy}
-                      onSyncTriggered={loadConnectors}
-                    />
+                    {c.connection_kind === 'imported' ? (
+                      <ImportedSourceStatus
+                        documents={c.documents ?? 0}
+                        unitLabel={unit}
+                        lastIndexed={c.last_indexed_change}
+                        job={autoSyncJobs[importJobFor(c.connector_id)]}
+                      />
+                    ) : (
+                      <SyncStatusDisplay
+                        chunks={c.chunks}
+                        documents={c.documents}
+                        sync={sync}
+                        unitLabel={unit}
+                        connectorId={c.connector_id}
+                        disabled={connectorActionsBusy}
+                        onSyncTriggered={loadConnectors}
+                      />
+                    )}
+                    {c.connection_kind !== 'imported' && autoSyncJobs[c.connector_id] && (
+                      <AutoSyncLine job={autoSyncJobs[c.connector_id]} />
+                    )}
                     {disconnectError?.id === c.connector_id && (
                       <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 4 }}>
                         Disconnect failed: {disconnectError.message}
                       </div>
                     )}
                   </div>
-                  <button
+                  {c.connection_kind !== 'imported' && <button
                     onClick={() => handleDisconnect(c.connector_id)}
                     disabled={connectorActionsBusy}
                     className="hud-label"
@@ -1138,7 +1215,7 @@ export function DataSourcesSection({ showSetup = false }: { showSetup?: boolean 
                     {disconnectingId === c.connector_id
                       ? sync?.state === 'stopping' ? 'Cleaning up…' : 'Disconnecting…'
                       : sync?.state === 'stopping' ? 'Finish disconnect' : 'Disconnect'}
-                  </button>
+                  </button>}
                 </div>
               </div>
             );
@@ -2295,41 +2372,24 @@ function MemorySection() {
 // Main page
 // ---------------------------------------------------------------------------
 
-function AppleDataStatus() {
-  const [sources, setSources] = useState<ConnectorInfo[]>([]);
-  const [ready, setReady] = useState<boolean | null>(null);
-  const [error, setError] = useState('');
-  const refresh = useCallback(async () => {
-    const [data, messaging] = await Promise.allSettled([listConnectors(), sendblueHealth()]);
-    if (data.status === 'fulfilled') {
-      setSources(data.value.filter(c => ['imessage', 'apple_notes', 'apple_contacts', 'apple_calendar'].includes(c.connector_id)));
-      setError('');
-    } else setError('Apple data status unavailable. Check that the Jarvis service is running.');
-    setReady(messaging.status === 'fulfilled' ? messaging.value.ready : null);
+function AutoSyncSummary() {
+  const [status, setStatus] = useState<AutoSyncStatus | null>(null);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => getAutoSyncStatus().then((s) => active && setStatus(s)).catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 15000);
+    return () => { active = false; clearInterval(timer); };
   }, []);
-  useEffect(() => { void refresh(); const timer = setInterval(refresh, 30000); return () => clearInterval(timer); }, [refresh]);
-  return <section className="hud-panel p-5 mb-6" aria-label="Apple data and iMessage status">
-    <div className="flex justify-between items-center gap-3 mb-3">
-      <h2 className="text-sm font-semibold">Apple data &amp; iMessage</h2>
-      <button className="text-xs underline" onClick={() => void refresh()}>Refresh status</button>
-    </div>
-    {error && <p role="alert" className="text-sm">{error}</p>}
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {sources.map(c => <div key={c.connector_id} className="text-sm">
-        <strong>{c.display_name}</strong>
-        <p>{(c.documents ?? 0).toLocaleString()} indexed {c.connector_id === 'imessage' ? 'messages' : c.connector_id === 'apple_notes' ? 'notes' : c.connector_id === 'apple_contacts' ? 'contacts' : 'events'}</p>
-        <p className="text-xs" style={{color:'var(--color-text-secondary)'}}>
-          {c.documents ? 'Available for search' : 'No imported data yet'}
-          {c.last_indexed_change && ` · Last indexed change ${new Date(c.last_indexed_change).toLocaleString()}`}
-        </p>
-      </div>)}
-    </div>
-    <p className="text-sm mt-4">Phone messaging (SendBlue): {ready === null ? 'Status unavailable' : ready ? 'Connected and ready' : 'Not ready — open Messaging to check setup'}</p>
-    <p className="text-xs mt-2" style={{color:'var(--color-text-secondary)'}}>
-      Apple history is imported from your Mac at Windows login when the Mac is awake and reachable. Indexed data stays searchable while the Mac is offline. Contact names appear when matched; unmatched numbers remain visible. SendBlue readiness does not confirm message delivery.
+  if (!status?.available) return null;
+  const minutes = Math.round((status.interval_seconds ?? 600) / 60);
+  const failing = status.jobs.filter((j) => j.state === 'error');
+  return (
+    <p className="text-xs mb-4" style={{ color: failing.length ? 'var(--color-error)' : 'var(--color-text-secondary)' }}>
+      {status.running ? `Auto-sync on · every ${minutes} min` : 'Auto-sync not running (start the Jarvis service)'}
+      {failing.length > 0 && ` · ${failing.length} source${failing.length > 1 ? 's' : ''} failing: ${failing.map((j) => j.label).join(', ')}`}
     </p>
-    <p className="text-xs mt-2" style={{color:'var(--color-text-secondary)'}}>Ask about message content here. Search results cannot reliably rank who you text most.</p>
-  </section>;
+  );
 }
 
 export function DataSourcesPage() {
@@ -2420,7 +2480,7 @@ export function DataSourcesPage() {
       </div>
 
       <div>
-        {activeTab === 'sources' && <><AppleDataStatus /><DataSourcesSection /></>}
+        {activeTab === 'sources' && <><AutoSyncSummary /><DataSourcesSection /></>}
         {activeTab === 'messaging' && (
           firstAgent ? (
             <MessagingSection agentId={firstAgent.id} />
