@@ -25,6 +25,17 @@ logger = logging.getLogger(__name__)
 
 _API_BASE = "https://api.sendblue.co"
 
+
+def _status_value(data: Any) -> str:
+    """Extract a status string; /api/status nests it ({"status": {"status": ...}})."""
+    for _ in range(3):
+        if isinstance(data, dict):
+            data = data.get("status") or data.get("data") or ""
+        else:
+            break
+    return str(data or "").upper() if isinstance(data, str) else ""
+
+
 # Inbound photo limits (iMessage photos are typically well under 10 MB).
 MAX_MEDIA_BYTES = 15 * 1024 * 1024
 ALLOWED_MEDIA_TYPES = {
@@ -235,9 +246,9 @@ class SendBlueChannel(BaseChannel):
                 params={"handle": handle},
                 timeout=15.0,
             )
-            return (
-                str(resp.json().get("status") or "") if resp.status_code < 300 else ""
-            )
+            if resp.status_code >= 300:
+                return ""
+            return _status_value(resp.json())
         except Exception:
             return ""
 

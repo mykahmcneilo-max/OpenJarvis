@@ -282,6 +282,14 @@ def test_from_binding_config_accepts_desktop_wizard_keys():
     assert ch.webhook_secret == "w"
 
 
+def test_delivery_status_handles_nested_status():
+    from openjarvis.channels.sendblue import _status_value
+
+    assert _status_value({"status": {"status": "DELIVERED"}}) == "DELIVERED"
+    assert _status_value({"status": "sent"}) == "SENT"
+    assert _status_value({}) == ""
+
+
 def test_from_binding_config_accepts_server_keys():
     from openjarvis.channels.sendblue import SendBlueChannel
 

@@ -349,6 +349,15 @@ class ChannelBridge:
                 )
 
         query = content or "What's in this photo?"
+        if images:
+            # Small models otherwise claim they "can't see images" even while
+            # describing the attached photo correctly.
+            query = (
+                f"{query}\n\n(The user attached {len(images)} photo"
+                f"{'s' if len(images) > 1 else ''} to this message. It's included "
+                "and you can see it: look at it and answer about it directly. "
+                "Don't say you can't see images.)"
+            )
         if context_str:
             query = f"Previous conversation:\n{context_str}\n\nCurrent message: {query}"
 
