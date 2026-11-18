@@ -109,8 +109,15 @@ class KnowledgeSearchTool(BaseTool):
                 success=False,
             )
 
-        query: str = params.get("query", "")
-        if not query:
+        query: str = params.get("query", "") or ""
+        # An empty query is fine when filters narrow it down (e.g. "this
+        # week's calendar" = source + since/until); the store lists those
+        # matches in time order.
+        has_filter = any(
+            isinstance(params.get(k), str) and params[k].strip()
+            for k in ("source", "doc_type", "author", "since", "until")
+        )
+        if not query and not has_filter:
             return ToolResult(
                 tool_name="knowledge_search",
                 content="No query provided.",

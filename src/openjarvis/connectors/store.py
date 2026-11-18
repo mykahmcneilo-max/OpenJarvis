@@ -365,8 +365,6 @@ class KnowledgeStore(MemoryBackend):
         # as apostrophes, hyphens and question marks is otherwise parsed as
         # query syntax and can turn a matching search into an empty result.
         terms = re.findall(r"\w+", query)
-        if not terms:
-            return []
         fts_query = " OR ".join(f'"{term}"' for term in terms)
 
         def _clean_str(val: Optional[str]) -> Optional[str]:
@@ -410,6 +408,23 @@ class KnowledgeStore(MemoryBackend):
             filters.append("kc.timestamp <= ?")
             params.append(until_str)
 
+        # No keywords: a filter-only listing ("this week's calendar") returns
+        # the matching chunks in time order instead of nothing. Without any
+        # narrowing filter there is nothing meaningful to list.
+        if not terms:
+            if not filters:
+                return []
+            filters.append("kc.deleted_at IS NULL")
+            listing_sql = f"""
+                SELECT kc.id, kc.content, kc.source, kc.metadata, 1.0 AS score
+                FROM knowledge_chunks kc
+                WHERE {" AND ".join(filters)}
+                ORDER BY kc.timestamp ASC
+                LIMIT ?
+            """
+            rows = self._conn.execute(listing_sql, params + [top_k]).fetchall()
+            return self._rows_to_results(rows)
+
         # Always exclude tombstoned rows.
         filters.append("kc.deleted_at IS NULL")
 
@@ -440,21 +455,7 @@ class KnowledgeStore(MemoryBackend):
                 return []
             raise
 
-        results: List[RetrievalResult] = []
-        for row in rows:
-            meta = json.loads(row["metadata"]) if row["metadata"] else {}
-            # Ensure chunk_id is always present in metadata (backfill for
-            # rows stored before this field was added to combined_meta).
-            if "chunk_id" not in meta:
-                meta["chunk_id"] = row["id"]
-            results.append(
-                RetrievalResult(
-                    content=row["content"],
-                    score=float(row["score"]),
-                    source=row["source"],
-                    metadata=meta,
-                )
-            )
+        results = self._rows_to_results(rows)
 
         get_event_bus().publish(
             EventType.MEMORY_RETRIEVE,
@@ -471,6 +472,25 @@ class KnowledgeStore(MemoryBackend):
                 },
             },
         )
+        return results
+
+    @staticmethod
+    def _rows_to_results(rows: Iterable[Any]) -> List[RetrievalResult]:
+        results: List[RetrievalResult] = []
+        for row in rows:
+            meta = json.loads(row["metadata"]) if row["metadata"] else {}
+            # Ensure chunk_id is always present in metadata (backfill for
+            # rows stored before this field was added to combined_meta).
+            if "chunk_id" not in meta:
+                meta["chunk_id"] = row["id"]
+            results.append(
+                RetrievalResult(
+                    content=row["content"],
+                    score=float(row["score"]),
+                    source=row["source"],
+                    metadata=meta,
+                )
+            )
         return results
 
     def chunk_hashes(self, doc_id: str, source_id: str) -> Dict[int, str]:

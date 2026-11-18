@@ -567,3 +567,28 @@ def test_context_manager_closes_on_exception(tmp_path: Path) -> None:
 
     with pytest.raises(sqlite3.ProgrammingError):
         ks._conn.execute("SELECT 1")
+
+
+def test_filter_only_listing_returns_matches_in_time_order(tmp_path):
+    """Empty query + filters lists matching chunks (e.g. this week's calendar)."""
+    from datetime import datetime
+
+    from openjarvis.connectors.store import KnowledgeStore
+
+    store = KnowledgeStore(str(tmp_path / "k.db"))
+    for day, title in ((19, "Dentist"), (17, "Gym"), (30, "Later")):
+        store.store(
+            f"{title} event",
+            source="gcalendar",
+            doc_id=f"cal:{day}",
+            timestamp=datetime(2026, 11, day),
+        )
+    store.store(
+        "Gym email", source="gmail", doc_id="m:1", timestamp=datetime(2026, 11, 18)
+    )
+
+    hits = store.retrieve(
+        "", top_k=10, source="gcalendar", since="2026-11-16", until="2026-11-23"
+    )
+    assert [h.content for h in hits] == ["Gym event", "Dentist event"]
+    assert store.retrieve("", top_k=10) == []

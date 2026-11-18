@@ -292,7 +292,8 @@ class TwoStageRetriever:
             return []
 
         # Stage 2: optional reranking
-        if self._reranker is not None and len(candidates) > top_k:
+        # Filter-only listings (empty query) keep their time order.
+        if self._reranker is not None and query.strip() and len(candidates) > top_k:
             return self._reranker.rerank(query, candidates, top_k=top_k)
 
         return candidates[:top_k]
