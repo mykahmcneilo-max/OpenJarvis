@@ -306,3 +306,70 @@ def test_webhook_accepts_secret_of_any_configured_binding(mock_bridge):
         ).status_code
         == 403
     )
+
+
+def test_photo_webhook_saves_media_logs_and_tracks_delivery(tmp_path, monkeypatch):
+    """A photo-only text is processed: media saved by id (no URL kept), the
+    reply is sent with a handle, and delivery status is recorded."""
+    import time
+
+    from openjarvis.server import webhook_routes
+    from openjarvis.server.session_store import SessionStore
+    from openjarvis.server.webhook_routes import create_webhook_router
+
+    monkeypatch.setattr(webhook_routes, "_media_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        webhook_routes,
+        "_track_delivery",
+        lambda ch, st, row, handle: st.update_delivery(row, "DELIVERED"),
+    )
+    channel = MagicMock()
+    channel.webhook_secret = "S"
+    channel.fetch_media.return_value = (b"\x89PNGdata", "image/png")
+    channel.send_message.return_value = {
+        "ok": True,
+        "handle": "h9",
+        "status": "QUEUED",
+        "error": "",
+    }
+    store = SessionStore(db_path=":memory:")
+    bridge = MagicMock()
+    bridge._session_store = store
+    bridge.respond.return_value = {
+        "content": "Nice dog.",
+        "agent": "Jarvis",
+        "model": "qwen3.5:9b",
+    }
+    app = FastAPI()
+    app.state.sendblue_channel = channel
+    app.include_router(create_webhook_router(bridge=bridge))
+    c = TestClient(app, headers={"sb-signing-secret": "S"})
+    photo = {
+        "from_number": "+1555",
+        "content": "",
+        "media_url": "https://cdn.example/p.png",
+        "message_handle": "in1",
+    }
+    assert c.post("/webhooks/sendblue", json=photo).status_code == 200
+
+    def delivered():
+        convs = store.logged_conversations()
+        return convs and convs[0]["messages"][-1]["delivery_status"] == "DELIVERED"
+
+    for _ in range(60):
+        if delivered():
+            break
+        time.sleep(0.05)
+    assert bridge.respond.call_args.kwargs["images"]
+    (conv,) = store.logged_conversations()
+    user, reply = conv["messages"]
+    assert user["attachments"][0]["type"] == "image/png"
+    assert "cdn.example" not in str(conv)
+    assert reply["delivery_status"] == "DELIVERED"
+    assert reply["model"] == "qwen3.5:9b"
+    assert len(list(tmp_path.iterdir())) == 1
+
+    # SendBlue retrying the same message handle is ignored.
+    c.post("/webhooks/sendblue", json={**photo, "content": "again"})
+    time.sleep(0.2)
+    assert bridge.respond.call_count == 1

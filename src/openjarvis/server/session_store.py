@@ -68,9 +68,165 @@ class SessionStore:
             );
             CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
                 ON channel_sessions (updated_at);
+            -- Durable, display-oriented log of channel messages (the rolling
+            -- history above is only the model's short-term context).
+            CREATE TABLE IF NOT EXISTS channel_messages (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id  TEXT    NOT NULL,
+                channel_type     TEXT    NOT NULL,
+                role             TEXT    NOT NULL,
+                content          TEXT    NOT NULL DEFAULT '',
+                attachments      TEXT    NOT NULL DEFAULT '[]',
+                agent            TEXT    NOT NULL DEFAULT '',
+                model            TEXT    NOT NULL DEFAULT '',
+                delivery_status  TEXT    NOT NULL DEFAULT '',
+                delivery_error   TEXT    NOT NULL DEFAULT '',
+                message_handle   TEXT    NOT NULL DEFAULT '',
+                created_at       TIMESTAMP
+                    DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_channel_messages_conv
+                ON channel_messages (conversation_id, id);
             """
         )
         self._db.commit()
+
+    # ------------------------------------------------------------------
+    # Durable message log (shown in the desktop chat list)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def conversation_id(sender_id: str, channel_type: str) -> str:
+        """Stable, non-reversible conversation id (never the phone number)."""
+        import hashlib
+
+        digest = hashlib.sha256(f"{channel_type}:{sender_id}".encode()).hexdigest()
+        return f"{channel_type}-{digest[:16]}"
+
+    @_db_locked
+    def log_message(
+        self,
+        sender_id: str,
+        channel_type: str,
+        role: str,
+        content: str,
+        *,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+        agent: str = "",
+        model: str = "",
+        delivery_status: str = "",
+        delivery_error: str = "",
+        message_handle: str = "",
+    ) -> int:
+        cur = self._db.execute(
+            "INSERT INTO channel_messages (conversation_id, channel_type, role, "
+            "content, attachments, agent, model, delivery_status, delivery_error, "
+            "message_handle) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                self.conversation_id(sender_id, channel_type),
+                channel_type,
+                role,
+                content,
+                json.dumps(attachments or []),
+                agent,
+                model,
+                delivery_status,
+                delivery_error,
+                message_handle,
+            ),
+        )
+        self._db.commit()
+        return int(cur.lastrowid)
+
+    @_db_locked
+    def backfill_logged_messages(self, channel_type: str = "sendblue") -> int:
+        """Copy rolling histories into the durable log once (no timestamps
+        existed, so they're stamped with the session's last update)."""
+        added = 0
+        rows = self._db.execute(
+            "SELECT sender_id, conversation_history, updated_at FROM "
+            "channel_sessions WHERE channel_type = ?",
+            (channel_type,),
+        ).fetchall()
+        for row in rows:
+            conv = self.conversation_id(row["sender_id"], channel_type)
+            exists = self._db.execute(
+                "SELECT 1 FROM channel_messages WHERE conversation_id = ? LIMIT 1",
+                (conv,),
+            ).fetchone()
+            if exists:
+                continue
+            stamp = str(row["updated_at"]).replace(" ", "T") + "Z"
+            for message in json.loads(row["conversation_history"] or "[]"):
+                if message.get("role") not in ("user", "assistant"):
+                    continue
+                self._db.execute(
+                    "INSERT INTO channel_messages (conversation_id, channel_type, "
+                    "role, content, agent, created_at) VALUES (?,?,?,?,?,?)",
+                    (
+                        conv,
+                        channel_type,
+                        message["role"],
+                        str(message.get("content", "")),
+                        "Jarvis" if message["role"] == "assistant" else "",
+                        stamp,
+                    ),
+                )
+                added += 1
+        self._db.commit()
+        return added
+
+    @_db_locked
+    def update_delivery(self, message_id: int, status: str, error: str = "") -> None:
+        self._db.execute(
+            "UPDATE channel_messages SET delivery_status = ?, delivery_error = ? "
+            "WHERE id = ?",
+            (status, error, message_id),
+        )
+        self._db.commit()
+
+    @_db_locked
+    def logged_conversations(
+        self, channel_type: str = "sendblue", limit: int = 200
+    ) -> List[Dict[str, Any]]:
+        """Conversations with their last *limit* messages, oldest first."""
+        conv_rows = self._db.execute(
+            "SELECT conversation_id, MAX(created_at) AS updated_at, "
+            "MIN(created_at) AS created_at FROM channel_messages "
+            "WHERE channel_type = ? GROUP BY conversation_id "
+            "ORDER BY updated_at DESC",
+            (channel_type,),
+        ).fetchall()
+        out: List[Dict[str, Any]] = []
+        for conv in conv_rows:
+            rows = self._db.execute(
+                "SELECT * FROM (SELECT * FROM channel_messages WHERE "
+                "conversation_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC",
+                (conv["conversation_id"], limit),
+            ).fetchall()
+            out.append(
+                {
+                    "id": conv["conversation_id"],
+                    "channel": channel_type,
+                    "created_at": conv["created_at"],
+                    "updated_at": conv["updated_at"],
+                    "messages": [
+                        {
+                            "id": f"{conv['conversation_id']}-{r['id']}",
+                            "role": r["role"],
+                            "content": r["content"],
+                            "attachments": json.loads(r["attachments"] or "[]"),
+                            "agent": r["agent"],
+                            "model": r["model"],
+                            "delivery_status": r["delivery_status"],
+                            "delivery_error": r["delivery_error"],
+                            "created_at": r["created_at"],
+                        }
+                        for r in rows
+                    ],
+                }
+            )
+        return out
 
     # ------------------------------------------------------------------
     # Public API

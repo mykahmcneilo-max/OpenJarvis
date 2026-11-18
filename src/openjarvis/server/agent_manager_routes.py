@@ -2637,20 +2637,52 @@ def create_agent_manager_router(
 
     @sendblue_router.get("/conversations")
     async def sendblue_conversations(request: Request):
+        """Phone conversations for the regular chat list.
+
+        Each conversation has a stable id (never the phone number) and
+        messages with timestamps, attachments, the answering agent/model and
+        the real delivery status reported by SendBlue.
+        """
         bridge = getattr(request.app.state, "channel_bridge", None)
         store = getattr(bridge, "_session_store", None)
-        if store is not None:
-            return {"conversations": store.recent_conversations(), "available": True}
-        from openjarvis.server.session_store import SessionStore
+        owned = store is None
+        if owned:
+            from openjarvis.server.session_store import SessionStore
 
-        offline_store = SessionStore()
+            store = SessionStore()
         try:
+            if not getattr(request.app.state, "_sendblue_backfilled", False):
+                store.backfill_logged_messages("sendblue")
+                request.app.state._sendblue_backfilled = True
             return {
-                "conversations": offline_store.recent_conversations(),
+                "conversations": store.logged_conversations("sendblue"),
                 "available": True,
             }
         finally:
-            offline_store.close()
+            if owned:
+                store.close()
+
+    @sendblue_router.get("/media/{media_id}")
+    async def sendblue_media(media_id: str):
+        """Serve a stored inbound photo for chat previews (local only)."""
+        import re as _re
+
+        from fastapi.responses import FileResponse
+
+        from openjarvis.channels.sendblue import ALLOWED_MEDIA_TYPES
+        from openjarvis.core.paths import get_config_dir
+
+        if not _re.fullmatch(r"[0-9a-f]{32}\.[a-z]{3,4}", media_id):
+            raise HTTPException(status_code=404, detail="Not found")
+        path = get_config_dir() / "media" / "sendblue" / media_id
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        ext = "." + media_id.rsplit(".", 1)[-1]
+        media_type = next(
+            (t for t, e in ALLOWED_MEDIA_TYPES.items() if e == ext),
+            "application/octet-stream",
+        )
+        return FileResponse(path, media_type=media_type)
 
     @sendblue_router.get("/health")
     async def sendblue_health(request: Request):

@@ -140,17 +140,37 @@ class ChannelBridge:
         metadata: Optional[Dict[str, Any]] = None,
         max_length: int = _DEFAULT_MAX_LENGTH,
     ) -> str:
+        return self.respond(sender_id, content, channel_type, max_length=max_length)[
+            "content"
+        ]
+
+    def respond(
+        self,
+        sender_id: str,
+        content: str,
+        channel_type: str,
+        *,
+        images: Optional[List[str]] = None,
+        max_length: int = _DEFAULT_MAX_LENGTH,
+    ) -> Dict[str, str]:
+        """Answer one incoming message.
+
+        Returns ``{"content", "agent", "model"}`` so callers can show who
+        actually answered. *images* are base64 photos from the message.
+        """
         self._session_store.get_or_create(sender_id, channel_type)
 
         # Command routing
         stripped = content.strip()
-        if stripped.startswith("/"):
+        if stripped.startswith("/") and not images:
             result = self._handle_command(sender_id, stripped, channel_type)
             if result is not None:
-                return result
+                return {"content": result, "agent": "Jarvis", "model": ""}
 
-        # Regular chat — route to JarvisSystem.ask()
-        return self._handle_chat(sender_id, stripped, channel_type, max_length)
+        # Regular chat (optionally addressed to a named agent)
+        return self._handle_chat(
+            sender_id, stripped, channel_type, max_length, images=images or []
+        )
 
     # --------------------------------------------------------------
     # Command parsing
@@ -257,8 +277,15 @@ class ChannelBridge:
         content: str,
         channel_type: str,
         max_length: int,
-    ) -> str:
-        self._session_store.append_message(sender_id, channel_type, "user", content)
+        images: Optional[List[str]] = None,
+    ) -> Dict[str, str]:
+        images = images or []
+        history_text = content or ("[sent a photo]" if images else "")
+        if images and content:
+            history_text = f"{content} [with photo]"
+        self._session_store.append_message(
+            sender_id, channel_type, "user", history_text
+        )
 
         # Build context from conversation history
         session = self._session_store.get_or_create(sender_id, channel_type)
@@ -269,50 +296,83 @@ class ChannelBridge:
             context_lines.append(f"{msg['role']}: {msg['content']}")
         context_str = "\n".join(context_lines)
 
-        query = content
-        if context_str:
-            query = (
-                f"Previous conversation:\n{context_str}\n\nCurrent message: {content}"
+        def _done(text: str, agent: str = "Jarvis", model: str = "") -> Dict[str, str]:
+            formatted = self._format_response(sender_id, channel_type, text, max_length)
+            self._session_store.append_message(
+                sender_id, channel_type, "assistant", text
             )
+            return {"content": formatted, "agent": agent, "model": model}
+
+        engine = getattr(self._deep_research_agent, "_engine", None)
+        default_model = getattr(self._deep_research_agent, "_model", "") or ""
+
+        # "Hey Tony, ..." -> the named agent answers (identity + its model).
+        if self._agent_manager is not None and engine is not None:
+            from openjarvis.agents.name_router import resolve_mention, run_named_agent
+
+            try:
+                mention = resolve_mention(content, self._agent_manager.list_agents())
+            except Exception:
+                logger.exception("Agent name resolution failed")
+                mention = None
+            if mention is not None and mention.error:
+                return _done(mention.error)
+            if mention is not None and mention.routed:
+                try:
+                    out = run_named_agent(
+                        mention,
+                        engine=engine,
+                        default_model=default_model,
+                        context=context_str,
+                        images=images,
+                        bus=self._bus,
+                    )
+                except Exception as exc:
+                    logger.exception("Named agent run failed")
+                    return _done(
+                        f"{mention.agent.get('name', 'That agent')} hit an error: "
+                        f"{type(exc).__name__}. Try again or ask me directly."
+                    )
+                text = f"{out['content']}\n\n{out['note']}".strip()
+                return _done(text, agent=out["agent"], model=out["model"])
+
+        if images:
+            from openjarvis.agents.name_router import model_supports_vision
+
+            if engine is None or not model_supports_vision(engine, default_model):
+                return _done(
+                    "Got your photo, but the model I'm running on "
+                    f"({default_model or 'unknown'}) can't see images, so I "
+                    "can't tell you what's in it. Switch to a vision model and "
+                    "send it again.",
+                    model=default_model,
+                )
+
+        query = content or "What's in this photo?"
+        if context_str:
+            query = f"Previous conversation:\n{context_str}\n\nCurrent message: {query}"
 
         # Try DeepResearchAgent first
         if self._deep_research_agent is not None:
             try:
-                result = self._deep_research_agent.run(_research_prompt(query))
+                result = self._deep_research_agent.run(
+                    _research_prompt(query), images=images
+                )
                 response_text = result.content or "No results found."
             except Exception as exc:
                 logger.error("DeepResearch agent failed: %s", exc)
-                response_text = f"Research error: {exc}"
-        elif self._system is not None:
+                response_text = (
+                    "Something broke on my end answering that "
+                    f"({type(exc).__name__}). Try me again in a sec."
+                )
+            return _done(response_text, model=default_model)
+        if self._system is not None:
             try:
                 result = self._system.ask(query)
-                response_text = result.get("content", str(result))
+                return _done(result.get("content", str(result)))
             except Exception:
                 logger.exception("Error in JarvisSystem.ask()")
-                error_msg = (
-                    "Sorry, I couldn't process that right now. Try again in a moment."
-                )
-                self._session_store.append_message(
-                    sender_id, channel_type, "assistant", error_msg
-                )
-                return error_msg
-        else:
-            error_msg = (
-                "Sorry, I couldn't process that right now. Try again in a moment."
-            )
-            self._session_store.append_message(
-                sender_id, channel_type, "assistant", error_msg
-            )
-            return error_msg
-
-        # Format and possibly truncate
-        formatted = self._format_response(
-            sender_id, channel_type, response_text, max_length
-        )
-        self._session_store.append_message(
-            sender_id, channel_type, "assistant", response_text
-        )
-        return formatted
+        return _done("Sorry, I couldn't process that right now. Try again in a moment.")
 
     def _format_response(
         self,

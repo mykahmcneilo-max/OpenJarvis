@@ -16,6 +16,49 @@ logger = logging.getLogger(__name__)
 
 # Seconds before a single "still on it" note is texted for a slow reply.
 _SLOW_REPLY_SECONDS = 90
+_FINAL_DELIVERY = {"DELIVERED", "ERROR", "DECLINED"}
+
+
+def _media_dir():
+    from openjarvis.core.paths import get_config_dir
+
+    path = get_config_dir() / "media" / "sendblue"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _save_inbound_media(channel, url: str) -> tuple[list[str], list[dict]]:
+    """Download one inbound photo; returns (base64 images, attachment records).
+
+    Files are stored under ~/.openjarvis/media/sendblue with a random name;
+    only that id is kept in history (never the SendBlue media URL).
+    """
+    import base64
+    import uuid
+
+    from openjarvis.channels.sendblue import ALLOWED_MEDIA_TYPES
+
+    data, ctype = channel.fetch_media(url)
+    media_id = uuid.uuid4().hex + ALLOWED_MEDIA_TYPES[ctype]
+    (_media_dir() / media_id).write_bytes(data)
+    record = {"id": media_id, "type": ctype, "size": len(data), "kind": "image"}
+    return [base64.b64encode(data).decode("ascii")], [record]
+
+
+def _track_delivery(channel, store, row_id: int, handle: str) -> None:
+    """Poll SendBlue until the reply is DELIVERED/ERROR (max ~2 minutes)."""
+    import time
+
+    status = ""
+    for delay in (2, 3, 5, 10, 15, 30, 60):
+        time.sleep(delay)
+        status = channel.delivery_status(handle) or status
+        if status:
+            store.update_delivery(row_id, status)
+        if status in _FINAL_DELIVERY:
+            break
+    if status not in _FINAL_DELIVERY:
+        logger.warning("SendBlue delivery unconfirmed after 2 min (last: %s)", status)
 
 
 def _log_task_exception(task: asyncio.Task) -> None:
@@ -406,10 +449,26 @@ def create_webhook_router(
             return Response("OK", status_code=200)
 
         from_number = payload.get("from_number", "")
-        content = payload.get("content", "")
+        content = payload.get("content", "") or ""
+        media_url = payload.get("media_url", "") or ""
 
-        if not from_number or not content:
+        # A photo with no text is still a message.
+        if not from_number or not (content.strip() or media_url):
             return Response("OK", status_code=200)
+
+        # SendBlue retries webhooks; process each message handle once.
+        handle_in = str(payload.get("message_handle") or "")
+        seen = getattr(request.app.state, "_sendblue_seen", None)
+        if seen is None:
+            from collections import OrderedDict
+
+            seen = request.app.state._sendblue_seen = OrderedDict()
+        if handle_in:
+            if handle_in in seen:
+                return Response("OK", status_code=200)
+            seen[handle_in] = True
+            while len(seen) > 500:
+                seen.popitem(last=False)
 
         # Capture sb for the closure
         reply_channel = sb
@@ -450,18 +509,81 @@ def create_webhook_router(
             reminder = threading.Thread(target=_send_reminders, daemon=True)
             reminder.start()
 
-            try:
-                response = active_bridge.handle_incoming(
-                    from_number, content, "sendblue"
+            store = getattr(active_bridge, "_session_store", None)
+            images: list[str] = []
+            attachments: list[dict] = []
+            media_note = ""
+            if media_url:
+                try:
+                    images, attachments = _save_inbound_media(reply_channel, media_url)
+                except Exception as exc:  # never log the media URL itself
+                    logger.warning("SendBlue attachment rejected: %s", exc)
+                    media_note = f"[photo could not be loaded: {exc}]"
+            if store is not None:
+                store.log_message(
+                    from_number,
+                    "sendblue",
+                    "user",
+                    (content + (f"\n{media_note}" if media_note else "")).strip(),
+                    attachments=attachments,
                 )
+
+            try:
+                if media_note and not content.strip():
+                    why = media_note[1:-1].split(": ", 1)[-1]
+                    reply = {
+                        "content": "Your photo didn't come through on my end "
+                        f"({why}). Try sending it again?",
+                        "agent": "Jarvis",
+                        "model": "",
+                    }
+                elif hasattr(active_bridge, "respond"):
+                    reply = active_bridge.respond(
+                        from_number, content, "sendblue", images=images
+                    )
+                else:
+                    reply = {
+                        "content": active_bridge.handle_incoming(
+                            from_number, content, "sendblue"
+                        ),
+                        "agent": "Jarvis",
+                        "model": "",
+                    }
             finally:
                 done_event.set()
                 with lock:
                     q["pending"] = max(0, q["pending"] - 1)
 
-            # Format response for clean text message display
-            if response and reply_channel:
-                reply_channel.send(from_number, _format_for_sms(response))
+            response = reply.get("content", "")
+            if not (response and reply_channel):
+                return
+            text = _format_for_sms(response)
+            sent = (
+                reply_channel.send_message(from_number, text)
+                if hasattr(reply_channel, "send_message")
+                else {"ok": reply_channel.send(from_number, text), "handle": ""}
+            )
+            row_id = None
+            if store is not None:
+                row_id = store.log_message(
+                    from_number,
+                    "sendblue",
+                    "assistant",
+                    response,
+                    agent=reply.get("agent", "Jarvis"),
+                    model=reply.get("model", ""),
+                    delivery_status=sent.get(
+                        "status", "SENT" if sent.get("ok") else "ERROR"
+                    ),
+                    delivery_error=sent.get("error", ""),
+                    message_handle=sent.get("handle", ""),
+                )
+            if not sent.get("ok"):
+                logger.error("SendBlue reply not sent: %s", sent.get("error", ""))
+                return
+            # Confirm delivery: accepted by the API is not delivered.
+            if store is not None and row_id and sent.get("handle"):
+                _track_delivery(reply_channel, store, row_id, sent["handle"])
 
         task = asyncio.create_task(asyncio.to_thread(_handle_and_reply))
         task.add_done_callback(_log_task_exception)

@@ -98,3 +98,62 @@ def test_phone_dashboard_shows_exchanges_without_sender_id():
     assert conversations[0]["messages"][1]["content"] == "Connected."
     assert "+15551234567" not in str(conversations)
     assert conversations[0]["updated_at"].endswith("Z")
+
+
+def _bridge(agent, manager=None):
+    from openjarvis.server.channel_bridge import ChannelBridge
+    from openjarvis.server.session_store import SessionStore
+
+    return ChannelBridge(
+        channels={},
+        session_store=SessionStore(db_path=":memory:"),
+        bus=MagicMock(),
+        agent_manager=manager,
+        deep_research_agent=agent,
+    )
+
+
+def test_photo_without_vision_model_is_answered_honestly():
+    from unittest.mock import patch
+
+    agent = MagicMock()
+    agent._model = "text-only:7b"
+    with patch(
+        "openjarvis.agents.name_router.model_supports_vision", return_value=False
+    ):
+        out = _bridge(agent).respond("+1555", "what is this", "sendblue", images=["a"])
+    assert "can't see images" in out["content"]
+    agent.run.assert_not_called()
+
+
+def test_photo_is_passed_to_vision_model():
+    from unittest.mock import patch
+
+    agent = MagicMock()
+    agent._model = "qwen3.5:9b"
+    agent.run.return_value = MagicMock(content="A red circle.")
+    with patch(
+        "openjarvis.agents.name_router.model_supports_vision", return_value=True
+    ):
+        out = _bridge(agent).respond("+1555", "", "sendblue", images=["a"])
+    assert out == {"content": "A red circle.", "agent": "Jarvis", "model": "qwen3.5:9b"}
+    assert agent.run.call_args.kwargs["images"] == ["a"]
+
+
+def test_named_agent_routing_from_phone():
+    from unittest.mock import patch
+
+    manager = MagicMock()
+    manager.list_agents.return_value = [{"id": "t", "name": "Tony", "config": {}}]
+    agent = MagicMock()
+    agent._model = "qwen3.5:9b"
+    reply = {"content": "Reviewed.", "agent": "Tony", "model": "qwen3.5:9b", "note": ""}
+    with patch(
+        "openjarvis.agents.name_router.run_named_agent", return_value=reply
+    ) as run:
+        out = _bridge(agent, manager).respond(
+            "+1555", "Hey Tony, review this project", "sendblue"
+        )
+    assert out["agent"] == "Tony" and out["content"] == "Reviewed."
+    assert run.call_args.args[0].message == "review this project"
+    agent.run.assert_not_called()

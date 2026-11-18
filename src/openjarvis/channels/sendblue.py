@@ -25,6 +25,17 @@ logger = logging.getLogger(__name__)
 
 _API_BASE = "https://api.sendblue.co"
 
+# Inbound photo limits (iMessage photos are typically well under 10 MB).
+MAX_MEDIA_BYTES = 15 * 1024 * 1024
+ALLOWED_MEDIA_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/heic": ".heic",
+    "image/heif": ".heif",
+}
+
 
 @ChannelRegistry.register("sendblue")
 class SendBlueChannel(BaseChannel):
@@ -160,6 +171,99 @@ class SendBlueChannel(BaseChannel):
         except Exception:
             logger.debug("SendBlue send failed", exc_info=True)
             return False
+
+    def _headers(self) -> Dict[str, str]:
+        return {
+            "sb-api-key-id": self._api_key_id,
+            "sb-api-secret-key": self._api_secret_key,
+            "Content-Type": "application/json",
+        }
+
+    def send_message(self, number: str, content: str) -> Dict[str, Any]:
+        """Send and return ``{"ok", "handle", "status", "error"}``.
+
+        Unlike :meth:`send`, the result carries SendBlue's message handle so
+        delivery can be confirmed later with :meth:`delivery_status`.
+        """
+        if not self._api_key_id or not self._api_secret_key:
+            return {
+                "ok": False,
+                "handle": "",
+                "status": "ERROR",
+                "error": "no credentials",
+            }
+        payload: Dict[str, Any] = {"number": number, "content": content}
+        if self._from_number:
+            payload["from_number"] = self._from_number
+        try:
+            import httpx
+
+            resp = httpx.post(
+                f"{_API_BASE}/api/send-message",
+                headers=self._headers(),
+                json=payload,
+                timeout=30.0,
+            )
+            data = resp.json() if resp.content else {}
+        except Exception as exc:  # network failure
+            return {
+                "ok": False,
+                "handle": "",
+                "status": "ERROR",
+                "error": type(exc).__name__,
+            }
+        ok = resp.status_code < 300 and data.get("status") != "ERROR"
+        if ok:
+            self._publish_sent(number, content, "")
+        return {
+            "ok": ok,
+            "handle": str(data.get("message_handle") or ""),
+            "status": str(data.get("status") or ("QUEUED" if ok else "ERROR")),
+            "error": "" if ok else str(data.get("error_message") or resp.status_code),
+        }
+
+    def delivery_status(self, handle: str) -> str:
+        """Return SendBlue's current status for *handle* ("" if unknown)."""
+        if not handle:
+            return ""
+        try:
+            import httpx
+
+            resp = httpx.get(
+                f"{_API_BASE}/api/status",
+                headers=self._headers(),
+                params={"handle": handle},
+                timeout=15.0,
+            )
+            return (
+                str(resp.json().get("status") or "") if resp.status_code < 300 else ""
+            )
+        except Exception:
+            return ""
+
+    def fetch_media(self, url: str) -> tuple[bytes, str]:
+        """Download an inbound attachment; returns ``(data, content_type)``.
+
+        Only https image downloads up to :data:`MAX_MEDIA_BYTES` are
+        accepted. The URL is never logged (it is a bearer-style link).
+        """
+        from urllib.parse import urlparse
+
+        import httpx
+
+        if urlparse(url).scheme != "https":
+            raise ValueError("attachment URL must be https")
+        with httpx.stream("GET", url, timeout=30.0, follow_redirects=True) as resp:
+            resp.raise_for_status()
+            ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            if ctype not in ALLOWED_MEDIA_TYPES:
+                raise ValueError(f"unsupported attachment type {ctype or 'unknown'}")
+            data = bytearray()
+            for chunk in resp.iter_bytes():
+                data.extend(chunk)
+                if len(data) > MAX_MEDIA_BYTES:
+                    raise ValueError("attachment too large")
+        return bytes(data), ctype
 
     def handle_webhook(self, payload: Dict[str, Any]) -> None:
         """Process an incoming webhook payload from SendBlue.

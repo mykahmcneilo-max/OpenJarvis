@@ -302,6 +302,13 @@ class DeepResearchAgent(ToolUsingAgent):
             "use only the public topic requested."
         )
         messages = self._build_messages(input, context, system_prompt=system_prompt)
+        images = kwargs.get("images") or []
+        if images:
+            # Photos ride on the user's turn for vision-capable models.
+            for msg in reversed(messages):
+                if msg.role == Role.USER:
+                    msg.images = list(images)
+                    break
 
         # Inject few-shot exemplars before the user input
         for ex in load_few_shot_exemplars("deep_research"):
@@ -344,6 +351,7 @@ class DeepResearchAgent(ToolUsingAgent):
                 and not all_tool_results
                 and turns == 1
                 and self._tools
+                and not images
                 and _needs_lookup(input)
             ):
                 messages.append(Message(role=Role.ASSISTANT, content=content))
