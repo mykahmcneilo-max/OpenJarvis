@@ -179,7 +179,7 @@ DEFAULT_MODEL_CHAIN = [
     "claude-code:opus",
     "codex-cli",
     "claude-code:sonnet",
-    "gemini-2.5-pro",
+    "gemini-3.8-flash",  # 3.x Pro has no free quota
     "grok-4",
     "kimi/kimi-k2-0905-preview",
     "deepseek-api/deepseek-chat",
@@ -187,7 +187,7 @@ DEFAULT_MODEL_CHAIN = [
     "groq/openai/gpt-oss-120b",
     "cerebras/llama-3.3-70b",
     "github/openai/gpt-4.1",
-    "gemini-2.5-flash",
+    "gemini-3.5-flash-lite",
     "openrouter/openrouter/free",
 ]
 
@@ -776,7 +776,7 @@ def provider_status() -> list[dict[str, Any]]:
             "google",
             "Google Gemini API",
             "GEMINI_API_KEY",
-            ["gemini-2.5-pro", "gemini-2.5-flash"],
+            ["gemini-3.8-flash", "gemini-3.5-flash-lite"],
         ),
         ("openrouter", "OpenRouter", "OPENROUTER_API_KEY", ["openrouter/free"]),
     ]
