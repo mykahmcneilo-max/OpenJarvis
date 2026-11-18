@@ -40,6 +40,8 @@ export interface ConnectorInfo {
   auth_url?: string;
   mcp_tools?: string[];
   chunks?: number;
+  documents?: number;
+  last_indexed_change?: string | null;
   oauth_setup?: OAuthSetupInfo | null;
 }
 

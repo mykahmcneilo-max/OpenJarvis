@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
-import type { ConnectRequest, ConnectorMeta, SyncStatus, OAuthSetupInfo } from '../types/connectors';
+import type { ConnectRequest, ConnectorInfo, ConnectorMeta, SyncStatus, OAuthSetupInfo } from '../types/connectors';
 import { listConnectors, connectSource, disconnectSourceUntilComplete, getConnector, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
 
 // ---------------------------------------------------------------------------
@@ -1038,7 +1038,7 @@ function DataSourcesSection() {
   })();
 
   const connected = unifiedConnectors.filter((c) => c.connected);
-  const notConnectedBase = unifiedConnectors.filter((c) => !c.connected);
+  const notConnectedBase = unifiedConnectors.filter((c) => !c.connected && !(c.chunks && ['imessage', 'apple_notes', 'apple_contacts', 'apple_calendar'].includes(c.connector_id)));
   // Always show the upload card in the not-connected list (it has no backend connector)
   const uploadEntry = { connector_id: 'upload', display_name: 'Upload / Paste', connected: false, chunks: 0, auth_type: 'local' };
   const notConnected = notConnectedBase.some((c) => c.connector_id === 'upload')
@@ -2293,6 +2293,43 @@ function MemorySection() {
 // Main page
 // ---------------------------------------------------------------------------
 
+function AppleDataStatus() {
+  const [sources, setSources] = useState<ConnectorInfo[]>([]);
+  const [ready, setReady] = useState<boolean | null>(null);
+  const [error, setError] = useState('');
+  const refresh = useCallback(async () => {
+    const [data, messaging] = await Promise.allSettled([listConnectors(), sendblueHealth()]);
+    if (data.status === 'fulfilled') {
+      setSources(data.value.filter(c => ['imessage', 'apple_notes', 'apple_contacts', 'apple_calendar'].includes(c.connector_id)));
+      setError('');
+    } else setError('Apple data status unavailable. Check that the Jarvis service is running.');
+    setReady(messaging.status === 'fulfilled' ? messaging.value.ready : null);
+  }, []);
+  useEffect(() => { void refresh(); const timer = setInterval(refresh, 30000); return () => clearInterval(timer); }, [refresh]);
+  return <section className="hud-panel p-5 mb-6" aria-label="Apple data and iMessage status">
+    <div className="flex justify-between items-center gap-3 mb-3">
+      <h2 className="text-sm font-semibold">Apple data &amp; iMessage</h2>
+      <button className="text-xs underline" onClick={() => void refresh()}>Refresh status</button>
+    </div>
+    {error && <p role="alert" className="text-sm">{error}</p>}
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {sources.map(c => <div key={c.connector_id} className="text-sm">
+        <strong>{c.display_name}</strong>
+        <p>{(c.documents ?? 0).toLocaleString()} indexed {c.connector_id === 'imessage' ? 'messages' : c.connector_id === 'apple_notes' ? 'notes' : c.connector_id === 'apple_contacts' ? 'contacts' : 'events'}</p>
+        <p className="text-xs" style={{color:'var(--color-text-secondary)'}}>
+          {c.documents ? 'Available for search' : 'No imported data yet'}
+          {c.last_indexed_change && ` · Last indexed change ${new Date(c.last_indexed_change).toLocaleString()}`}
+        </p>
+      </div>)}
+    </div>
+    <p className="text-sm mt-4">Phone messaging (SendBlue): {ready === null ? 'Status unavailable' : ready ? 'Connected and ready' : 'Not ready — open Messaging to check setup'}</p>
+    <p className="text-xs mt-2" style={{color:'var(--color-text-secondary)'}}>
+      Apple history is imported from your Mac at Windows login when the Mac is awake and reachable. Indexed data stays searchable while the Mac is offline. Contact names appear when matched; unmatched numbers remain visible. SendBlue readiness does not confirm message delivery.
+    </p>
+    <p className="text-xs mt-2" style={{color:'var(--color-text-secondary)'}}>Ask about message content here. Search results cannot reliably rank who you text most.</p>
+  </section>;
+}
+
 export function DataSourcesPage() {
   const [agents, setAgents] = useState<ManagedAgent[]>([]);
   const [activeTab, setActiveTab] = useState<'sources' | 'messaging' | 'memory'>('sources');
@@ -2381,7 +2418,7 @@ export function DataSourcesPage() {
       </div>
 
       <div>
-        {activeTab === 'sources' && <DataSourcesSection />}
+        {activeTab === 'sources' && <><AppleDataStatus /><DataSourcesSection /></>}
         {activeTab === 'messaging' && (
           firstAgent ? (
             <MessagingSection agentId={firstAgent.id} />

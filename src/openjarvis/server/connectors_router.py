@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime, timezone
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -144,6 +145,8 @@ def create_connectors_router():
     def _connector_summary(connector_id: str, instance: Any) -> Dict[str, Any]:
         """Build the dict returned by GET /connectors."""
         chunks = 0
+        documents = 0
+        last_indexed_change = None
         try:
             from openjarvis.connectors.store import KnowledgeStore
 
@@ -151,11 +154,17 @@ def create_connectors_router():
             placeholders = ", ".join("?" for _ in sources)
             with KnowledgeStore() as store:
                 rows = store._conn.execute(
-                    f"SELECT COUNT(*) FROM knowledge_chunks "
-                    f"WHERE source IN ({placeholders})",
+                    f"SELECT COUNT(*), COUNT(DISTINCT doc_id), MAX(last_synced) "
+                    f"FROM knowledge_chunks WHERE source IN ({placeholders}) "
+                    "AND deleted_at IS NULL",
                     sources,
                 ).fetchone()
-                chunks = rows[0] if rows else 0
+                if rows:
+                    chunks, documents, last_indexed_change = rows
+                    if last_indexed_change is not None:
+                        last_indexed_change = datetime.fromtimestamp(
+                            float(last_indexed_change), tz=timezone.utc
+                        ).isoformat()
         except Exception:
             pass
 
@@ -165,6 +174,8 @@ def create_connectors_router():
             "auth_type": getattr(instance, "auth_type", "unknown"),
             "connected": instance.is_connected(),
             "chunks": chunks,
+            "documents": documents,
+            "last_indexed_change": last_indexed_change,
         }
 
     def _maybe_oauth_client_pair(

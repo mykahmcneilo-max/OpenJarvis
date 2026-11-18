@@ -777,3 +777,32 @@ def test_gmail_quota_exhaustion_is_reported_as_rate_limited(app, monkeypatch):
         assert state["error"] == "Rate limited — wait a minute and try again."
     finally:
         _instances.pop("gmail", None)
+
+
+def test_imported_apple_data_is_reported_without_direct_mac_access(app, monkeypatch):
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.server import connectors_router
+
+    class ImportedMessages:
+        display_name = "iMessage"
+        auth_type = "local"
+
+        def is_connected(self):
+            return False
+
+    monkeypatch.setitem(connectors_router._instances, "imessage", ImportedMessages())
+    with KnowledgeStore() as store:
+        for index in range(2):
+            store.store(
+                content=f"fixture {index}", source="imessage", doc_id="imessage:1"
+            )
+        store.store(content="other", source="imessage", doc_id="imessage:2")
+    result = next(
+        c
+        for c in app.get("/v1/connectors").json()["connectors"]
+        if c["connector_id"] == "imessage"
+    )
+    assert result["connected"] is False
+    assert result["documents"] == 2
+    assert result["chunks"] == 3
+    assert result["last_indexed_change"].endswith("+00:00")
