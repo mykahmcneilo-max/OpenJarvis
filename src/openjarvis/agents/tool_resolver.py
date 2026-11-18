@@ -274,9 +274,12 @@ def build_deep_research_tools(
 
         knowledge_db_path = DEFAULT_CONFIG_DIR / "knowledge.db"
 
+    from openjarvis.tools.web_search import WebSearchTool
+
+    web_search = WebSearchTool(engine="duckduckgo")
     path = Path(knowledge_db_path)
     if not path.exists():
-        return []
+        return [web_search]
 
     from openjarvis.connectors.retriever import TwoStageRetriever
     from openjarvis.connectors.store import KnowledgeStore
@@ -293,6 +296,7 @@ def build_deep_research_tools(
             KnowledgeSQLTool(store=store),
             ScanChunksTool(store=store, engine=engine, model=model),
             ThinkTool(),
+            web_search,
         ]
     except Exception:
         store.close()

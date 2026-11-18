@@ -107,8 +107,16 @@ class ObsidianConnector(BaseConnector):
     auth_type = "filesystem"
 
     def __init__(self, vault_path: str = "") -> None:
-        self._vault_path = vault_path
-        self._connected: bool = bool(vault_path) and Path(vault_path).is_dir()
+        from openjarvis.connectors.oauth import load_tokens
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+
+        self._settings_path = DEFAULT_CONFIG_DIR / "connectors" / "obsidian.json"
+        self._vault_path = vault_path or (
+            load_tokens(str(self._settings_path)) or {}
+        ).get("vault_path", "")
+        self._connected: bool = (
+            bool(self._vault_path) and Path(self._vault_path).is_dir()
+        )
         self._items_synced: int = 0
         self._items_total: int = 0
 
@@ -122,8 +130,20 @@ class ObsidianConnector(BaseConnector):
 
     def disconnect(self) -> None:
         """Clear vault_path and mark as disconnected."""
+        from openjarvis.connectors.oauth import delete_tokens
+
+        delete_tokens(str(self._settings_path))
         self._vault_path = ""
         self._connected = False
+
+    def configure(self, vault_path: str) -> None:
+        from openjarvis.connectors.oauth import save_tokens
+
+        if not Path(vault_path).is_dir():
+            raise ValueError("Obsidian vault folder does not exist")
+        save_tokens(str(self._settings_path), {"vault_path": vault_path})
+        self._vault_path = vault_path
+        self._connected = True
 
     def sync(
         self,

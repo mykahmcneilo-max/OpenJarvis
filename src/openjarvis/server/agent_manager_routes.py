@@ -2584,6 +2584,23 @@ def create_agent_manager_router(
                 detail=f"Failed to send test message: {exc}",
             )
 
+    @sendblue_router.get("/conversations")
+    async def sendblue_conversations(request: Request):
+        bridge = getattr(request.app.state, "channel_bridge", None)
+        store = getattr(bridge, "_session_store", None)
+        if store is not None:
+            return {"conversations": store.recent_conversations(), "available": True}
+        from openjarvis.server.session_store import SessionStore
+
+        offline_store = SessionStore()
+        try:
+            return {
+                "conversations": offline_store.recent_conversations(),
+                "available": True,
+            }
+        finally:
+            offline_store.close()
+
     @sendblue_router.get("/health")
     async def sendblue_health(request: Request):
         """Check if the SendBlue channel bridge is wired and ready."""

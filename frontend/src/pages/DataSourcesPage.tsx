@@ -648,6 +648,7 @@ function formatBacklogRange(iso: string | null | undefined): string | null {
 
 export function SyncStatusDisplay({
   chunks,
+  documents,
   sync,
   unitLabel,
   connectorId,
@@ -655,6 +656,7 @@ export function SyncStatusDisplay({
   onSyncTriggered,
 }: {
   chunks: number;
+  documents?: number;
   sync: SyncStatus | undefined;
   unitLabel: string;
   connectorId: string;
@@ -716,11 +718,8 @@ export function SyncStatusDisplay({
     );
   }
 
-  // Treat the SyncEngine's checkpointed items_synced as the source of
-  // truth for "total indexed" — `chunks` from listConnectors counts
-  // embedding chunks (often != source items) and the checkpoint is what
-  // both the syncing and idle branches need to display consistently.
-  const totalIndexed = sync?.items_synced ?? chunks;
+  // Distinct source documents are authoritative; checkpoints may count chunks.
+  const totalIndexed = documents ?? sync?.items_synced ?? chunks;
   const itemsTotal = sync?.items_total ?? 0;
   const backlogRange = formatBacklogRange(sync?.oldest_item_date);
   // "Complete inbox" — the user has indexed everything reachable. Only
@@ -835,7 +834,7 @@ export function SyncStatusDisplay({
   );
 }
 
-function DataSourcesSection() {
+export function DataSourcesSection({ showSetup = false }: { showSetup?: boolean }) {
   const cachedConnectors = useAppStore((s) => s.cachedConnectors);
   const setCachedConnectors = useAppStore((s) => s.setCachedConnectors);
   const connectors = cachedConnectors ?? [];
@@ -856,6 +855,7 @@ function DataSourcesSection() {
           display_name: c.display_name,
           connected: c.connected,
           chunks: (c as any).chunks || 0,
+          documents: c.documents,
           auth_type: c.auth_type,
         })),
       );
@@ -981,6 +981,7 @@ function DataSourcesSection() {
             display_name: c.display_name,
             connected: c.connected,
             chunks: (c as any).chunks || 0,
+          documents: c.documents,
             auth_type: c.auth_type,
           })));
           break;
@@ -1106,6 +1107,7 @@ function DataSourcesSection() {
                     </div>
                     <SyncStatusDisplay
                       chunks={c.chunks}
+                      documents={c.documents}
                       sync={sync}
                       unitLabel={unit}
                       connectorId={c.connector_id}
@@ -1146,7 +1148,7 @@ function DataSourcesSection() {
       )}
 
       {/* Not connected list */}
-      {notConnected.length > 0 && (
+      {showSetup && notConnected.length > 0 && (
         <section>
           <div className="hud-label mb-2 flex items-center gap-2">
             <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 999, background: 'var(--color-text-tertiary)' }} />

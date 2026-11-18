@@ -21,6 +21,16 @@ from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
 
 
+def _trim_followup_offer(text: str) -> str:
+    """Drop generic closing offers without removing a necessary direct question."""
+    paragraphs = text.strip().split("\n\n")
+    if len(paragraphs) > 1 and paragraphs[-1].lstrip("* ").lower().startswith(
+        ("would you like me to", "is there anything else", "let me know if you'd like")
+    ):
+        return "\n\n".join(paragraphs[:-1]).rstrip()
+    return text
+
+
 def _tc_name(tc: dict) -> str:
     """Extract tool call name from OpenAI or flat format."""
     if "function" in tc:
@@ -225,6 +235,27 @@ class DeepResearchAgent(ToolUsingAgent):
         system_prompt = (
             load_system_prompt_override("deep_research") or _build_system_prompt()
         )
+        from openjarvis.core.paths import get_config_dir
+
+        personal_context = get_config_dir() / "personal-context.md"
+        if personal_context.is_file():
+            system_prompt += (
+                "\n\nKnown user context:\n"
+                + personal_context.read_text(encoding="utf-8")[:8000]
+            )
+        system_prompt += (
+            "\nAnswer the current request directly. Use known context before asking "
+            "questions. Never invent expansions of abbreviations or speculate that "
+            "unrelated search matches are what the user meant. If evidence is missing, "
+            "say what you searched and what was not found. Do not append offers or "
+            "clarification questions unless missing information actually prevents "
+            "a requested action. A test message needs a short acknowledgement, "
+            "not research. "
+            "For current events, news or latest information, use web_search and cite "
+            "dated sources. Never claim live web access without a successful search. "
+            "Never send private message history or personal context to web_search; "
+            "use only the public topic requested."
+        )
         messages = self._build_messages(input, context, system_prompt=system_prompt)
 
         # Inject few-shot exemplars before the user input
@@ -286,7 +317,7 @@ class DeepResearchAgent(ToolUsingAgent):
                 sources = self._extract_sources(all_tool_results)
                 total_usage["sources"] = sources
                 return AgentResult(
-                    content=content,
+                    content=_trim_followup_offer(content),
                     tool_results=all_tool_results,
                     turns=turns,
                     metadata=total_usage,
@@ -370,7 +401,7 @@ class DeepResearchAgent(ToolUsingAgent):
             sources = self._extract_sources(all_tool_results)
             total_usage["sources"] = sources
             return AgentResult(
-                content=final_content,
+                content=_trim_followup_offer(final_content),
                 tool_results=all_tool_results,
                 turns=turns,
                 metadata=total_usage,

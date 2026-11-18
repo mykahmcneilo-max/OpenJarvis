@@ -176,3 +176,35 @@ def test_agent_defaults():
     assert DeepResearchAgent._default_max_turns == 8
     assert DeepResearchAgent._default_temperature == 0.3
     assert DeepResearchAgent._default_max_tokens == 4096
+
+
+def test_known_context_and_no_guess_rules_reach_system_prompt(
+    mock_engine, tmp_path, monkeypatch
+):
+    from openjarvis.core import paths
+
+    monkeypatch.setattr(paths, "get_config_dir", lambda: tmp_path)
+    (tmp_path / "personal-context.md").write_text("DE training means PCTE training.")
+    mock_engine.generate.return_value = {"content": "PCTE training.", "usage": {}}
+    agent = DeepResearchAgent(mock_engine, model="mock", tools=[])
+    agent.run("What is DE training?")
+    messages = mock_engine.generate.call_args.args[0]
+    system_text = "\n".join(m.content for m in messages if m.role.value == "system")
+    assert "DE training means PCTE" in system_text
+    assert "Never invent expansions" in system_text
+    assert "web_search" in system_text
+
+
+def test_trim_optional_offer_preserves_actual_missing_information():
+    from openjarvis.agents.deep_research import _trim_followup_offer
+
+    assert (
+        _trim_followup_offer(
+            "No matching notes.\n\nWould you like me to search elsewhere?"
+        )
+        == "No matching notes."
+    )
+    assert (
+        _trim_followup_offer("Which appointment date should I use?")
+        == "Which appointment date should I use?"
+    )

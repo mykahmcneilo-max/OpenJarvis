@@ -184,3 +184,17 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("obsidian")
     cls = ConnectorRegistry.get("obsidian")
     assert cls.connector_id == "obsidian"
+
+
+def test_vault_configuration_survives_restart(tmp_path, monkeypatch):
+    from openjarvis.connectors.obsidian import ObsidianConnector
+    from openjarvis.core import config
+
+    monkeypatch.setattr(config, "DEFAULT_CONFIG_DIR", tmp_path / "settings")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    first = ObsidianConnector()
+    first.configure(str(vault))
+    assert ObsidianConnector().is_connected()
+    first.disconnect()
+    assert not ObsidianConnector().is_connected()

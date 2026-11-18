@@ -13,6 +13,15 @@ from openjarvis.core.types import Message
 from openjarvis.server import cloud_router
 
 
+@pytest.fixture(autouse=True)
+def isolated_cloud_settings(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_router, "get_config_dir", lambda: tmp_path)
+    if os.name == "nt":
+        from keyring.backends.Windows import WinVaultKeyring
+
+        monkeypatch.setattr(WinVaultKeyring, "get_password", lambda *args: None)
+
+
 @pytest.mark.parametrize(
     "model",
     ["gpt-oss", "gpt-oss:20b", "gpt-oss:120b", "gpt-oss-20b", "gpt-oss-120b"],
@@ -175,3 +184,31 @@ async def test_cloud_key_file_is_utf8_with_windows_default_encoding(
 
     assert keys["OPENAI_API_KEY"] == "fake-openai-key"
     assert keys["ANTHROPIC_API_KEY"] == "fake-anthropic-key"
+
+
+@pytest.mark.asyncio
+async def test_free_only_blocks_paid_route_before_provider_call(tmp_path, monkeypatch):
+    (tmp_path / "free-cloud-only").touch()
+    paid = AsyncMock()
+    monkeypatch.setattr(cloud_router, "_stream_openai", paid)
+    with pytest.raises(ValueError, match="Free-only mode"):
+        _ = [part async for part in cloud_router.stream_cloud("gpt-4o", [])]
+    paid.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_free_only_allows_openrouter_free_route(tmp_path, monkeypatch):
+    (tmp_path / "free-cloud-only").touch()
+    monkeypatch.setattr(
+        cloud_router, "_load_keys", lambda: {"OPENROUTER_API_KEY": "fixture"}
+    )
+
+    async def free_stream(*args, **kwargs):
+        yield "free result"
+
+    monkeypatch.setattr(cloud_router, "_stream_openai", free_stream)
+    parts = [
+        part
+        async for part in cloud_router.stream_cloud("openrouter/openrouter/free", [])
+    ]
+    assert parts == ["free result"]

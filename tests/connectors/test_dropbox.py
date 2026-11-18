@@ -167,3 +167,39 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("dropbox")
     cls = ConnectorRegistry.get("dropbox")
     assert cls.connector_id == "dropbox"
+
+
+def test_refreshes_short_lived_access_before_sync(connector, monkeypatch):
+    from unittest.mock import Mock
+
+    from openjarvis.connectors import dropbox
+    from openjarvis.connectors.oauth import load_tokens, save_tokens
+
+    save_tokens(
+        connector._credentials_path,
+        {
+            "access_token": "old",
+            "refresh_token": "refresh",
+            "client_id": "client",
+            "client_secret": "fixture",
+        },
+    )
+    response = Mock(status_code=200)
+    response.json.return_value = {"access_token": "renewed", "expires_in": 14400}
+    post = Mock(return_value=response)
+    listing = Mock(return_value={"entries": [], "has_more": False})
+    monkeypatch.setattr(dropbox.httpx, "post", post)
+    monkeypatch.setattr(dropbox, "_dropbox_api_list_folder", listing)
+    assert list(connector.sync()) == []
+    assert listing.call_args.args[0] == "renewed"
+    assert load_tokens(connector._credentials_path)["refresh_token"] == "refresh"
+    assert post.call_args.kwargs["data"]["grant_type"] == "refresh_token"
+
+
+def test_client_registration_alone_is_not_connected(connector):
+    from openjarvis.connectors.oauth import save_tokens
+
+    save_tokens(
+        connector._credentials_path, {"client_id": "app", "client_secret": "fixture"}
+    )
+    assert not connector.is_connected()

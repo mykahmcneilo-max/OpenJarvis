@@ -128,7 +128,8 @@ def test_deep_research_agent_gets_tools(tmp_path: Path) -> None:
     assert "knowledge_sql" in tool_ids
     assert "scan_chunks" in tool_ids
     assert "think" in tool_ids
-    assert len(tools) == 4
+    assert len(tools) == 5
+    assert "web_search" in tool_ids
     store.close()
 
 
@@ -143,7 +144,7 @@ def test_deep_research_tools_returns_empty_when_no_db() -> None:
         knowledge_db_path="/nonexistent/path/knowledge.db",
     )
 
-    assert tools == []
+    assert [tool.tool_id for tool in tools] == ["web_search"]
 
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
@@ -234,6 +235,7 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
     on_complete.assert_called_once_with()
 
     expected_names = {
+        "web_search",
         _ConfiguredResearchProbe.tool_id,
         _MCPResearchProbe.tool_id,
     }

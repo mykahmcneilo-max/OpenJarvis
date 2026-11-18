@@ -806,3 +806,9 @@ def test_imported_apple_data_is_reported_without_direct_mac_access(app, monkeypa
     assert result["documents"] == 2
     assert result["chunks"] == 3
     assert result["last_indexed_change"].endswith("+00:00")
+
+
+def test_dropbox_callback_requires_matching_state(app):
+    response = app.get("/v1/connectors/dropbox/oauth/callback?code=fixture")
+    assert response.status_code == 400
+    assert "state" in response.json()["detail"]

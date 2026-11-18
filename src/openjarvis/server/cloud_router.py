@@ -70,6 +70,27 @@ def _load_keys() -> dict[str, str]:
         val = os.environ.get(name)
         if val:
             keys[name] = val
+    # The persistent service may start before Desktop; read its secure slots too.
+    if os.name == "nt":
+        try:
+            from keyring.backends.Windows import WinVaultKeyring
+
+            vault = WinVaultKeyring()
+            for name in (
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "GEMINI_API_KEY",
+                "GOOGLE_API_KEY",
+                "OPENROUTER_API_KEY",
+                "MINIMAX_API_KEY",
+                "ATLASCLOUD_API_KEY",
+            ):
+                if name not in keys:
+                    value = vault.get_password("OpenJarvis Cloud Keys", name)
+                    if value:
+                        keys[name] = value
+        except ImportError:
+            pass
     return keys
 
 
@@ -378,6 +399,16 @@ async def stream_cloud(
 ) -> AsyncIterator[str]:
     """Stream tokens from a cloud provider for the given model."""
     provider = get_provider(model)
+    if (get_config_dir() / "free-cloud-only").exists():
+        free_route = provider == "openrouter" and (
+            _openrouter_model_id(model).endswith(":free")
+            or _openrouter_model_id(model) == "openrouter/free"
+        )
+        if not free_route:
+            raise ValueError(
+                "Free-only mode: this API route is not verified free. "
+                "Use local Ollama or an OpenRouter free model."
+            )
 
     if provider == "openai":
         async for token in _stream_openai(model, messages, temperature, max_tokens):

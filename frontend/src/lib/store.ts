@@ -23,6 +23,7 @@ export interface CachedConnector {
   display_name: string;
   connected: boolean;
   chunks: number;
+  documents?: number;
   auth_type: string;
 }
 

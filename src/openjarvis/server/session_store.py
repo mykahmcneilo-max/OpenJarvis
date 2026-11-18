@@ -138,6 +138,33 @@ class SessionStore:
             raise
 
     @_db_locked
+    def recent_conversations(
+        self, channel_type: str = "sendblue"
+    ) -> List[Dict[str, Any]]:
+        """Return recent exchanges without exposing sender IDs or credentials."""
+        rows = self._db.execute(
+            "SELECT conversation_history, updated_at FROM channel_sessions "
+            "WHERE channel_type = ? AND conversation_history != '[]' "
+            "ORDER BY updated_at DESC LIMIT 5",
+            (channel_type,),
+        ).fetchall()
+        return [
+            {
+                "label": f"Phone conversation {index + 1}",
+                "updated_at": row["updated_at"].replace(" ", "T") + "Z",
+                "messages": [
+                    {
+                        "role": message.get("role"),
+                        "content": str(message.get("content", ""))[:8000],
+                    }
+                    for message in json.loads(row["conversation_history"])[-20:]
+                    if message.get("role") in ("user", "assistant")
+                ],
+            }
+            for index, row in enumerate(rows)
+        ]
+
+    @_db_locked
     def set_notification_preference(
         self,
         sender_id: str,

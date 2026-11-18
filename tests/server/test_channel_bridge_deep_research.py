@@ -84,3 +84,17 @@ def test_deep_research_receives_conversation_history() -> None:
     assert "What happened this week?" in prompt
     assert "Current message: Yes put it all together" in prompt
     assert "Do not ask clarifying questions" in prompt
+
+
+def test_phone_dashboard_shows_exchanges_without_sender_id():
+    from openjarvis.server.session_store import SessionStore
+
+    store = SessionStore(":memory:")
+    store.get_or_create("+15551234567", "sendblue")
+    store.append_message("+15551234567", "sendblue", "user", "Apple connection test")
+    store.append_message("+15551234567", "sendblue", "assistant", "Connected.")
+    conversations = store.recent_conversations()
+    assert len(conversations) == 1
+    assert conversations[0]["messages"][1]["content"] == "Connected."
+    assert "+15551234567" not in str(conversations)
+    assert conversations[0]["updated_at"].endswith("Z")

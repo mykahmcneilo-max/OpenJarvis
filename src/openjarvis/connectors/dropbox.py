@@ -170,7 +170,7 @@ class DropboxConnector(BaseConnector):
         tokens = load_tokens(self._credentials_path)
         if tokens is None:
             return False
-        return bool(tokens)
+        return bool(tokens.get("token") or tokens.get("access_token"))
 
     def disconnect(self) -> None:
         """Delete the stored credentials file."""
@@ -221,6 +221,32 @@ class DropboxConnector(BaseConnector):
             return
 
         token: str = tokens.get("token", tokens.get("access_token", ""))
+        if tokens.get("refresh_token"):
+            response = httpx.post(
+                "https://api.dropboxapi.com/oauth2/token",
+                auth=(tokens["client_id"], tokens["client_secret"]),
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": tokens["refresh_token"],
+                },
+                timeout=30,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(
+                    "Dropbox authorization could not be refreshed; reconnect Dropbox"
+                )
+            refreshed = response.json()
+            token = refreshed.get("access_token", "")
+            if not token:
+                raise RuntimeError("Dropbox refresh returned no access token")
+            tokens.update(
+                {
+                    "access_token": token,
+                    "expires_in": refreshed.get("expires_in", 14400),
+                }
+            )
+            tokens.pop("token", None)
+            save_tokens(self._credentials_path, tokens)
         if not token:
             return
 

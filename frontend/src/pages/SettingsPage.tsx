@@ -1,3 +1,4 @@
+import { DataSourcesSection } from './DataSourcesPage';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Palette,
@@ -658,6 +659,7 @@ export function SettingsPage() {
 
           {/* API Keys */}
           <Section title="API Keys">
+            <p className="text-xs mb-3">Free-only mode is enabled on this PC. Local Ollama and OpenRouter free routes are allowed. Stored keys do not include a subscription or prove free API access; other API routes remain blocked until explicitly authorized.</p>
             <SettingRow label="OpenAI" description="GPT-4, GPT-3.5, etc.">
               <ApiKeyInput keyName="OPENAI_API_KEY" placeholder="sk-..." />
             </SettingRow>
@@ -670,14 +672,23 @@ export function SettingsPage() {
             <SettingRow label="OpenRouter" description="Multi-provider routing">
               <ApiKeyInput keyName="OPENROUTER_API_KEY" placeholder="sk-or-..." />
             </SettingRow>
+            <SettingRow label="MiniMax" description="Optional API account; no key is created automatically">
+              <ApiKeyInput keyName="MINIMAX_API_KEY" placeholder="MiniMax API key" />
+            </SettingRow>
             <SettingRow label="Atlas Cloud" description="Models routed through Atlas Cloud">
               <ApiKeyInput keyName="ATLASCLOUD_API_KEY" placeholder="Atlas Cloud API key" />
             </SettingRow>
           </Section>
 
+          <Section title="Optional integrations">
+            <details><summary className="cursor-pointer text-sm">Set up Notion, Obsidian, Dropbox and other sources</summary>
+              <p className="text-xs my-3">Only connected sources appear in your main view. These accounts and permissions are separate from your AI subscription.</p>
+              <DataSourcesSection showSetup />
+            </details>
+          </Section>
           {/* Tools */}
           <Section title="Tools">
-            <SettingRow label="Web Search" description="Tavily key for web search tool">
+            <SettingRow label="Web Search" description="Free DuckDuckGo search is available without a key; Tavily is optional">
               <ApiKeyInput keyName="TAVILY_API_KEY" placeholder="tvly-..." toolName="web_search" />
             </SettingRow>
           </Section>

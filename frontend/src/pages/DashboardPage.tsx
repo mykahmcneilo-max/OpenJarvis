@@ -1,3 +1,4 @@
+import { PhoneConversations } from '../components/Dashboard/PhoneConversations';
 import { EnergyDashboard } from '../components/Dashboard/EnergyDashboard';
 import { CostComparison } from '../components/Dashboard/CostComparison';
 import { TraceDebugger } from '../components/Dashboard/TraceDebugger';
@@ -23,6 +24,7 @@ export function DashboardPage() {
           </p>
         </header>
 
+        <PhoneConversations />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
           <EnergyDashboard />
           <CostComparison />

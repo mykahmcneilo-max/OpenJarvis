@@ -507,11 +507,11 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         label: 'Click the "Permissions" tab at the top. Check "files.metadata.read" and "files.content.read" → click "Submit" at the bottom to save',
       },
       {
-        label: 'Go back to the "Settings" tab. Under "OAuth 2", find "Generated access token" and click "Generate". Copy the token and paste it below',
+        label: 'Register the local OAuth callback URL shown in Jarvis, then paste App key:App secret below. Continue through Dropbox consent for renewable access.',
       },
     ],
     inputFields: [
-      { name: 'token', placeholder: 'Access token (sl.u...)', type: 'password' },
+      { name: 'token', placeholder: 'App key:App secret or access token', type: 'password' },
     ],
   },
   {

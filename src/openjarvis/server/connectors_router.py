@@ -535,6 +535,8 @@ def create_connectors_router():
             if auth_type == "filesystem":
                 # Filesystem connectors accept a vault / directory path.
                 if req.path:
+                    if connector_id == "obsidian":
+                        instance.configure(req.path)
                     instance._vault_path = req.path
                     from pathlib import Path
 
@@ -792,11 +794,24 @@ def create_connectors_router():
             "scope": " ".join(provider.scopes),
             **provider.extra_auth_params,
         }
+        if connector_id == "dropbox":
+            import secrets
+
+            params["state"] = secrets.token_urlsafe(32)
         auth_url = f"{provider.auth_endpoint}?{urlencode(params)}"
 
         from fastapi.responses import RedirectResponse
 
-        return RedirectResponse(url=auth_url)
+        response = RedirectResponse(url=auth_url)
+        if connector_id == "dropbox":
+            response.set_cookie(
+                "oj-dropbox-state",
+                params["state"],
+                max_age=600,
+                httponly=True,
+                samesite="lax",
+            )
+        return response
 
     @router.get("/{connector_id}/oauth/callback")
     @_serialized_async
@@ -805,6 +820,7 @@ def create_connectors_router():
         request: Request,
         code: str = "",
         error: str = "",
+        state: str = "",
     ):
         """Handle OAuth callback from the provider."""
         from fastapi.responses import HTMLResponse
@@ -835,6 +851,12 @@ def create_connectors_router():
                 status_code=400,
             )
 
+        if connector_id == "dropbox":
+            import secrets
+
+            expected = request.cookies.get("oj-dropbox-state", "")
+            if not state or not expected or not secrets.compare_digest(state, expected):
+                raise HTTPException(400, "Invalid OAuth state; reconnect Dropbox")
         if not code:
             raise HTTPException(400, "Missing authorization code")
 
