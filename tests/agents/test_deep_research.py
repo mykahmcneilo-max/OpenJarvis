@@ -93,7 +93,8 @@ def test_agent_produces_result(mock_engine, store):
     result = agent.run("What happened with the Kubernetes migration?")
     assert isinstance(result, AgentResult)
     assert "migration" in result.content.lower() or "Kubernetes" in result.content
-    assert result.turns == 1
+    # A data question answered without searching is sent back once to search.
+    assert result.turns == 2
     assert result.tool_results == []
 
 
@@ -208,3 +209,55 @@ def test_trim_optional_offer_preserves_actual_missing_information():
         _trim_followup_offer("Which appointment date should I use?")
         == "Which appointment date should I use?"
     )
+
+
+def test_needs_lookup_skips_small_talk_only():
+    from openjarvis.agents.deep_research import _needs_lookup
+
+    assert not _needs_lookup("Hey")
+    assert not _needs_lookup("rules...\n\nCurrent message: thanks!")
+    assert _needs_lookup("When is Dad's birthday?")
+    assert _needs_lookup(
+        "rules\n\nPrevious conversation:\nuser: hey\n\n"
+        "Current message: what's due friday"
+    )
+
+
+def test_agent_is_sent_back_to_search_when_it_skips_tools():
+    """A data question answered with no tool call gets one forced retry."""
+    from unittest.mock import MagicMock
+
+    from openjarvis.agents.deep_research import DeepResearchAgent
+    from openjarvis.tools._stubs import ToolResult
+
+    tool = MagicMock()
+    tool.spec.name = "knowledge_search"
+    tool.to_openai_function.return_value = {
+        "type": "function",
+        "function": {"name": "knowledge_search", "parameters": {}},
+    }
+    tool.execute.return_value = ToolResult(
+        tool_name="knowledge_search", content="Dad birthday Dec 29", success=True
+    )
+    engine = MagicMock()
+    engine.generate.side_effect = [
+        {"content": "I checked everything, no birthday.", "tool_calls": []},
+        {
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "1",
+                    "type": "function",
+                    "function": {
+                        "name": "knowledge_search",
+                        "arguments": '{"query": "Dad birthday"}',
+                    },
+                }
+            ],
+        },
+        {"content": "Dec 29.", "tool_calls": []},
+    ]
+    agent = DeepResearchAgent(engine=engine, model="m", tools=[tool])
+    result = agent.run("When is Dad's birthday?")
+    assert result.content.strip() == "Dec 29."
+    assert engine.generate.call_count == 3

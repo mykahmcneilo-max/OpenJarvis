@@ -7,6 +7,7 @@ results, and produces narrative answers with inline source citations.
 
 from __future__ import annotations
 
+import re
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
@@ -53,11 +54,24 @@ def _build_system_prompt() -> str:
     date_str = now.strftime("%A, %B %d, %Y")
     time_str = now.strftime("%I:%M %p")
 
+    from openjarvis.prompt.persona import persona_block
+
+    # Persona first: small local models weight the top of the prompt most.
     return f"""\
 /no_think
 You are Jarvis, a personal AI assistant with access to the user's private \
 knowledge base — emails, text messages, meeting notes, documents, and notes. \
-You are helpful, conversational, and smart about when to use your tools.
+You are helpful, conversational, and smart about when to use your tools.\
+{persona_block()}
+The examples below use <placeholders>; never present them as the user's \
+own data. Only name sources and topics you actually found.
+
+**Hard rule:** anything about the user's own life or data (calendar, \
+birthdays, messages, emails, notes, files, people, plans, assignments) \
+REQUIRES calling a search tool before you answer — being direct means \
+searching first, then answering briefly. Never say you checked, searched \
+or looked through anything unless you actually called a tool this turn. \
+Only plain small talk ("hey", "thanks") skips tools.
 
 **Today is {date_str}. The current time is {time_str}.** \
 Use this for any time-related queries ("today", "this week", "recently", etc.).
@@ -72,8 +86,15 @@ Reply naturally. No tools needed.
 **Quick data lookup** — "how many messages?", "list sources". \
 One knowledge_sql call, short answer.
 
-**People lookup** — "who is Avanika?", "tell me about my relationship \
-with Chris". Search messages and meetings by person name, summarize \
+**Calendar / schedule** — "what's on my calendar this week?", "when is \
+Mom's birthday?", "am I free Friday?". Calendar events (Google, Outlook \
+and Apple) are in knowledge_search with source="gcalendar" or \
+"apple_calendar"; filter with since/until for the dates asked (this week \
+= Monday through Sunday of the current week). List events with day and \
+time.
+
+**People lookup** — "who is <name>?", "tell me about my relationship \
+with <name>". Search messages and meetings by person name, summarize \
 the relationship — how often you communicate, what you discuss, recent \
 interactions.
 
@@ -83,8 +104,8 @@ a summary: messages sent/received, emails, meetings attended, documents \
 edited. Use knowledge_sql with timestamp filters for counts, then \
 knowledge_search for highlights.
 
-**Meeting prep / debrief** — "what did I discuss with Avanika?", \
-"prepare me for my meeting with Tighe". Search Granola meeting notes \
+**Meeting prep / debrief** — "what did I discuss with <name>?", \
+"prepare me for my meeting with <name>". Search meeting notes \
 by participant name, summarize key topics, decisions, and action items.
 
 **Task / follow-up finder** — "any tasks I forgot?", "what action items \
@@ -99,23 +120,25 @@ recency analysis, or communication patterns. \
 Example: SELECT author, MAX(timestamp) as last_msg FROM knowledge_chunks \
 WHERE source='imessage' GROUP BY author ORDER BY last_msg ASC LIMIT 10
 
-**Document finder** — "find my seed investment doc", "where's the \
-OpenThoughts notes?". Search by title in knowledge_search or \
+**Document finder** — "find my <topic> doc", "where are my notes on \
+<topic>?". Search by title in knowledge_search or \
 knowledge_sql. Return the document title and source.
 
 **Email triage** — "important emails I missed?", "summarize recent \
 emails". Filter gmail by recency, summarize senders and subjects.
 
-**Cross-source synthesis** — "everything about the Scipio project", \
-"what do I know about OpenJarvis?". Search a topic across ALL sources \
+**Cross-source synthesis** — "everything about <project>", \
+"what do I know about <topic>?". Search a topic across ALL sources \
 (messages, emails, meetings, docs, notes) and synthesize findings.
 
-**Deep research** — "when was my trip to Spain?", "which VCs have I \
-spoken with?". Multi-hop search across sources, cross-reference, \
+**Deep research** — "when was my trip to <place>?", "which <people> \
+have I spoken with?". Multi-hop search across sources, cross-reference, \
 produce a cited narrative report.
 
 **About yourself** — "what can you do?", "what data do you have?" \
-Describe your capabilities. Use knowledge_sql for counts if asked.
+Two or three casual sentences with a couple of concrete examples from \
+the user's actual sources; no long bullet menu. Use knowledge_sql for \
+counts if asked.
 
 Match the depth to the query. Don't over-research simple questions.
 
@@ -158,7 +181,29 @@ abbreviations, related terms.
 - Use simple markdown: **bold** for emphasis, bullet lists with -, \
 short paragraphs. Avoid LaTeX, complex tables, and deeply nested \
 formatting. Keep it readable in both web and messaging apps.
-- If nothing found, say so honestly and suggest alternatives."""
+- If nothing found, say so honestly and what you checked.
+- Never open with filler ("Hello! How can I help?", "Great question") or \
+close with generic offers ("Let me know if...", "Just let me know...")."""
+
+
+_SMALL_TALK = re.compile(
+    r"^\W*(hey+|hi+|hello|yo|sup|what'?s up|wassup|thanks?|thank you|thx|ty|"
+    r"ok(ay)?|cool|nice|lol|lmao|haha+|bet|good (morning|night)|gm|gn|"
+    r"test(ing)?|how are you|how'?s it going)\W*$",
+    re.IGNORECASE,
+)
+
+
+def _needs_lookup(text: str) -> bool:
+    """True unless the user's actual message is small talk.
+
+    Channel prompts wrap the message in rules and history; only the part
+    after "Current message:" (or the last line) is the user's turn.
+    """
+    message = text.rsplit("Current message:", 1)[-1].strip()
+    if "Current message:" not in text:
+        message = message.splitlines()[-1].strip() if message else ""
+    return bool(message) and not _SMALL_TALK.match(message)
 
 
 # Backward-compatible constant (static snapshot, prefer _build_system_prompt())
@@ -291,6 +336,28 @@ class DeepResearchAgent(ToolUsingAgent):
 
             content = result.get("content", "")
             tool_calls_raw = result.get("tool_calls", [])
+
+            # Small local models sometimes "answer" a data question without
+            # searching (and then claim they checked). Send them back once.
+            if (
+                not tool_calls_raw
+                and not all_tool_results
+                and turns == 1
+                and self._tools
+                and _needs_lookup(input)
+            ):
+                messages.append(Message(role=Role.ASSISTANT, content=content))
+                messages.append(
+                    Message(
+                        role=Role.USER,
+                        content=(
+                            "You answered without searching. Call "
+                            "knowledge_search now (try the key words and the "
+                            "likely source), then answer from what it returns."
+                        ),
+                    )
+                )
+                continue
 
             # No tool calls -- this is the final answer
             if not tool_calls_raw:
