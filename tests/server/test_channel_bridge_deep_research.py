@@ -53,3 +53,34 @@ def test_handle_chat_falls_back_to_system() -> None:
 
     assert result == "Generic response"
     mock_system.ask.assert_called_once()
+
+
+def test_deep_research_receives_conversation_history() -> None:
+    """Follow-up texts must reach the agent with prior turns and text rules."""
+    from openjarvis.server.channel_bridge import ChannelBridge
+    from openjarvis.server.session_store import SessionStore
+
+    mock_agent = MagicMock()
+    mock_agent.run.return_value = MagicMock(content="ok")
+    bridge = ChannelBridge(
+        channels={},
+        session_store=SessionStore(db_path=":memory:"),
+        bus=MagicMock(),
+        deep_research_agent=mock_agent,
+    )
+
+    bridge.handle_incoming(
+        sender_id="+15551234567",
+        content="What happened this week?",
+        channel_type="sendblue",
+    )
+    bridge.handle_incoming(
+        sender_id="+15551234567",
+        content="Yes put it all together",
+        channel_type="sendblue",
+    )
+
+    prompt = mock_agent.run.call_args_list[-1].args[0]
+    assert "What happened this week?" in prompt
+    assert "Current message: Yes put it all together" in prompt
+    assert "Do not ask clarifying questions" in prompt

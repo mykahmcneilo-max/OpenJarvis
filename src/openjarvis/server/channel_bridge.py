@@ -28,6 +28,25 @@ Available commands:
 /help — show this message\
 """
 
+# Prior messages passed to the research agent as conversation context
+_HISTORY_TURNS = 8
+
+_TEXT_REPLY_RULES = (
+    "You are replying by text message. Today is {today}. Search the user's "
+    "data and answer directly with what you find. Do not ask clarifying "
+    "questions or end your reply with questions: if the request is broad, "
+    "choose the most reasonable reading (e.g. 'this week' = the current "
+    "calendar week) and summarize. Keep it short. Use the previous "
+    "conversation to understand follow-ups."
+)
+
+
+def _research_prompt(query: str) -> str:
+    """Prefix a channel query with texting rules and today's date."""
+    today = time.strftime("%A, %B %d, %Y")
+    return f"{_TEXT_REPLY_RULES.format(today=today)}\n\n{query}"
+
+
 # Events the bridge subscribes to for notifications
 _NOTIFICATION_EVENTS = [
     EventType.AGENT_TICK_END,
@@ -245,7 +264,8 @@ class ChannelBridge:
         session = self._session_store.get_or_create(sender_id, channel_type)
         history = session.get("conversation_history", [])
         context_lines = []
-        for msg in history[:-1]:  # exclude the message we just appended
+        # exclude the message we just appended; keep the last few turns only
+        for msg in history[:-1][-_HISTORY_TURNS:]:
             context_lines.append(f"{msg['role']}: {msg['content']}")
         context_str = "\n".join(context_lines)
 
@@ -258,7 +278,7 @@ class ChannelBridge:
         # Try DeepResearchAgent first
         if self._deep_research_agent is not None:
             try:
-                result = self._deep_research_agent.run(content)
+                result = self._deep_research_agent.run(_research_prompt(query))
                 response_text = result.content or "No results found."
             except Exception as exc:
                 logger.error("DeepResearch agent failed: %s", exc)
