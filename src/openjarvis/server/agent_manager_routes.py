@@ -611,6 +611,40 @@ def _instantiate_managed_tool(
     )
 
 
+def _existing_sendblue_secret(manager: Any, config: Dict[str, Any]) -> str:
+    """Return the webhook secret already used for this SendBlue account."""
+    from openjarvis.channels.sendblue import SendBlueChannel
+
+    key_id = SendBlueChannel.from_binding_config(config)._api_key_id
+    for agent in manager.list_agents():
+        agent_id = agent.get("id", agent.get("agent_id", ""))
+        for binding in manager.list_channel_bindings(agent_id):
+            if binding.get("channel_type") != "sendblue":
+                continue
+            other = SendBlueChannel.from_binding_config(binding.get("config", {}))
+            if other.webhook_secret and (not key_id or other._api_key_id == key_id):
+                return other.webhook_secret
+    return ""
+
+
+def _is_public_https_url(url: str) -> bool:
+    """True for https URLs on a public host (not localhost/tauri/LAN)."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not host:
+        return False
+    if host == "localhost" or host.endswith((".localhost", ".local")):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return "." in host
+    return ip.is_global
+
+
 def _build_deep_research_tools(
     engine: Any,
     model: str,
@@ -1854,7 +1888,14 @@ def create_agent_manager_router(
             import secrets as _secrets
 
             req.config = dict(req.config or {})
-            req.config.setdefault("webhook_secret", _secrets.token_urlsafe(32))
+            # SendBlue sends ONE secret per account webhook. Reuse the secret
+            # of any existing binding for the same SendBlue account, so a
+            # second agent binding can't make the secrets diverge (which made
+            # every inbound text fail with 403 after a restart).
+            existing = _existing_sendblue_secret(manager, req.config)
+            req.config.setdefault(
+                "webhook_secret", existing or _secrets.token_urlsafe(32)
+            )
         binding = manager.bind_channel(
             agent_id,
             channel_type=req.channel_type,
@@ -1931,6 +1972,8 @@ def create_agent_manager_router(
                     sb_channel.connect()
                     # Store on app state so webhook route can use it
                     request.app.state.sendblue_channel = sb_channel
+                    known = getattr(request.app.state, "sendblue_channels", [])
+                    request.app.state.sendblue_channels = [*known, sb_channel]
 
                     # Create or update the channel bridge
                     bridge = getattr(request.app.state, "channel_bridge", None)
@@ -2499,6 +2542,14 @@ def create_agent_manager_router(
             raise HTTPException(
                 status_code=400,
                 detail="webhook_url is required",
+            )
+        if not _is_public_https_url(webhook_url):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "webhook_url must be a public https URL that SendBlue can "
+                    "reach (e.g. your ngrok address), not a local app address"
+                ),
             )
         # Use the secret of the bound channel so SendBlue echoes it back
         # and the inbound route can verify it.

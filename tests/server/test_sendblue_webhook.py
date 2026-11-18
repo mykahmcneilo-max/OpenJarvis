@@ -273,3 +273,36 @@ class TestSendBlueHealth:
         assert resp.status_code == 200
         data = resp.json()
         assert data["ready"] is False
+
+
+def test_webhook_accepts_secret_of_any_configured_binding(mock_bridge):
+    """After a restart the primary channel may be a different binding than the
+    one whose secret SendBlue sends; any configured binding must verify."""
+    from openjarvis.channels.sendblue import SendBlueChannel
+    from openjarvis.server.webhook_routes import create_webhook_router
+
+    primary = SendBlueChannel(
+        api_key_id="k", api_secret_key="s", from_number="+1555", webhook_secret="A"
+    )
+    other = SendBlueChannel(
+        api_key_id="k", api_secret_key="s", from_number="+1555", webhook_secret="B"
+    )
+    app = FastAPI()
+    app.state.sendblue_channel = primary
+    app.state.sendblue_channels = [primary, other]
+    app.include_router(create_webhook_router(bridge=mock_bridge))
+    c = TestClient(app)
+    msg = {"from_number": "+19127130720", "content": "hi", "is_outbound": False}
+
+    assert (
+        c.post(
+            "/webhooks/sendblue", json=msg, headers={"sb-signing-secret": "B"}
+        ).status_code
+        == 200
+    )
+    assert (
+        c.post(
+            "/webhooks/sendblue", json=msg, headers={"sb-signing-secret": "C"}
+        ).status_code
+        == 403
+    )

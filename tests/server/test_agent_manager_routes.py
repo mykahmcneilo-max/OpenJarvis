@@ -924,3 +924,31 @@ class TestLightweightSystemEngineResolution:
         assert results == [backend] * 8
         assert runtime.memory_backend is backend
         assert runtime._owns_memory_backend is True
+
+
+def test_public_https_url_check():
+    from openjarvis.server.agent_manager_routes import _is_public_https_url
+
+    assert _is_public_https_url("https://abc.ngrok-free.dev/webhooks/sendblue")
+    for bad in (
+        "http://tauri.localhost/webhooks/sendblue",
+        "https://localhost:8000/x",
+        "https://127.0.0.1/x",
+        "https://192.168.0.5/x",
+        "https://my-mac.local/x",
+        "http://example.com/x",
+    ):
+        assert not _is_public_https_url(bad), bad
+
+
+def test_second_sendblue_binding_reuses_account_secret(manager):
+    from openjarvis.server.agent_manager_routes import _existing_sendblue_secret
+
+    a = manager.create_agent(name="A")
+    manager.bind_channel(
+        a["id"],
+        channel_type="sendblue",
+        config={"api_key": "k1", "api_secret": "s", "webhook_secret": "SECRET1"},
+    )
+    assert _existing_sendblue_secret(manager, {"api_key_id": "k1"}) == "SECRET1"
+    assert _existing_sendblue_secret(manager, {"api_key_id": "other"}) == ""

@@ -45,6 +45,22 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
         if mgr is None:
             return
 
+        # Register EVERY SendBlue binding's channel for webhook verification;
+        # the first one also gets wired into the ChannelBridge below.
+        from openjarvis.channels.sendblue import SendBlueChannel
+
+        all_channels = []
+        for agent in mgr.list_agents():
+            agent_id = agent.get("id", agent.get("agent_id", ""))
+            for b in mgr.list_channel_bindings(agent_id):
+                if b.get("channel_type") != "sendblue":
+                    continue
+                ch = SendBlueChannel.from_binding_config(b.get("config", {}))
+                if ch._api_key_id and ch._api_secret_key:
+                    ch.connect()
+                    all_channels.append(ch)
+        app.state.sendblue_channels = all_channels
+
         # Check all agents for sendblue bindings
         for agent in mgr.list_agents():
             agent_id = agent.get("id", agent.get("agent_id", ""))

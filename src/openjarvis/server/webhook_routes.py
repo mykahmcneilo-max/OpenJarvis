@@ -14,6 +14,9 @@ from starlette.responses import PlainTextResponse
 
 logger = logging.getLogger(__name__)
 
+# Seconds before a single "still on it" note is texted for a slow reply.
+_SLOW_REPLY_SECONDS = 90
+
 
 def _log_task_exception(task: asyncio.Task) -> None:
     """Log exceptions from background message handling tasks."""
@@ -367,12 +370,18 @@ def create_webhook_router(
     async def sendblue_incoming(request: Request) -> Response:
         payload = await request.json()
 
-        # Get the SendBlue channel — may be passed at init or set later
-        sb = sendblue_channel or getattr(request.app.state, "sendblue_channel", None)
+        # Every configured SendBlue binding is a candidate: the account's
+        # webhook carries one of their secrets, and after a restart the
+        # "primary" channel may belong to a different binding.
+        primary = sendblue_channel or getattr(
+            request.app.state, "sendblue_channel", None
+        )
+        candidates = [primary, *getattr(request.app.state, "sendblue_channels", [])]
+        candidates = [c for c in candidates if c and getattr(c, "webhook_secret", "")]
 
         # Fail closed: require a configured channel + webhook secret to verify
         # the sender before processing any inbound message.
-        if sb is None or not getattr(sb, "webhook_secret", ""):
+        if not candidates:
             logger.error("SendBlue webhook rejected: webhook_secret not configured.")
             return Response("Webhook secret not configured", status_code=403)
         # SendBlue sends the registered secret as ``sb-signing-secret``;
@@ -380,7 +389,16 @@ def create_webhook_router(
         header_secret = request.headers.get(
             "sb-signing-secret", ""
         ) or request.headers.get("x-sendblue-secret", "")
-        if not hmac.compare_digest(header_secret, sb.webhook_secret):
+        sb = next(
+            (
+                c
+                for c in candidates
+                if hmac.compare_digest(header_secret, c.webhook_secret)
+            ),
+            None,
+        )
+        if sb is None:
+            logger.warning("SendBlue webhook rejected: secret matched no binding")
             return Response("Invalid secret", status_code=403)
 
         # Ignore outbound status callbacks
@@ -420,32 +438,14 @@ def create_webhook_router(
             with lock:
                 q = _sendblue_queues.setdefault(from_number, {"pending": 0})
                 q["pending"] += 1
-                position = q["pending"]
 
-            # Immediate acknowledgment
-            if reply_channel:
-                if position > 1:
-                    reply_channel.send(
-                        from_number,
-                        f"Message received! Message {position} in"
-                        f" queue, will respond ASAP",
-                    )
-                else:
-                    reply_channel.send(
-                        from_number,
-                        "Message received! Working on it now...",
-                    )
-
-            # Periodic "still working" reminders every 60s
+            # No "Message received!" acks: answer directly. Only if a reply
+            # is genuinely slow, send ONE casual heads-up.
             done_event = threading.Event()
 
             def _send_reminders() -> None:
-                while not done_event.wait(60):
-                    if reply_channel:
-                        reply_channel.send(
-                            from_number,
-                            "Still working! Will reply ASAP",
-                        )
+                if not done_event.wait(_SLOW_REPLY_SECONDS) and reply_channel:
+                    reply_channel.send(from_number, "still on it, one sec")
 
             reminder = threading.Thread(target=_send_reminders, daemon=True)
             reminder.start()
