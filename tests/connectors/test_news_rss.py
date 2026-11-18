@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import socket
 import stat
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -155,6 +155,16 @@ def test_sync_atom_feed(tmp_path):
     assert len(docs) == 1
     assert docs[0].title == "Atom Entry"
     assert "distributed systems" in docs[0].content
+
+
+@pytest.mark.parametrize("offset", [0, -4, 5])
+def test_sync_filters_by_aware_since(connector, offset):
+    cutoff = datetime(2026, 4, 1, 11, tzinfo=timezone.utc).astimezone(
+        timezone(timedelta(hours=offset))
+    )
+    with patch("openjarvis.connectors.news_rss._fetch_feed", return_value=_SAMPLE_RSS):
+        docs = list(connector.sync(since=cutoff))
+    assert [doc.title for doc in docs] == ["Article Two", "Article Three"]
 
 
 def test_sync_filters_by_since(connector):

@@ -34,6 +34,7 @@ def test_stdio_discovery_and_readonly_call(tmp_path, monkeypatch):
     assert {t["name"] for t in responses[1]["result"]["tools"]} == {
         "knowledge_search",
         "knowledge_sql",
+        "shared_tool_catalog",
     }
     assert responses[2]["result"]["isError"] is True
     assert responses[3]["result"] == {}

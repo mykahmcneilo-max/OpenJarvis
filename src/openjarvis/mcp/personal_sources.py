@@ -15,12 +15,19 @@ from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 from openjarvis.mcp.server import MCPServer
 from openjarvis.tools.knowledge_search import KnowledgeSearchTool
 from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+from openjarvis.tools.shared_tool_catalog import SharedToolCatalog
 
 
 def serve(source: TextIO = sys.stdin, destination: TextIO = sys.stdout) -> None:
     """Serve bounded line-delimited MCP requests without stdout logging."""
     with KnowledgeStore() as store:
-        server = MCPServer(tools=[KnowledgeSearchTool(store), KnowledgeSQLTool(store)])
+        server = MCPServer(
+            tools=[
+                KnowledgeSearchTool(store),
+                KnowledgeSQLTool(store),
+                SharedToolCatalog(),
+            ]
+        )
         for line in source:
             request_id = None
             try:

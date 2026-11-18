@@ -13,7 +13,7 @@ import json
 import socket
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
@@ -355,8 +355,16 @@ class NewsRSSConnector(BaseConnector):
                 pub_dt = _parse_pub_date(item["pubDate"])
 
                 # Filter by since if the date is parseable
-                if since and pub_dt and pub_dt.replace(tzinfo=None) < since:
-                    continue
+                if since and pub_dt:
+                    # Older checkpoints without an offset represent UTC.
+                    published = (
+                        pub_dt if pub_dt.tzinfo else pub_dt.replace(tzinfo=timezone.utc)
+                    )
+                    cutoff = (
+                        since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+                    )
+                    if published < cutoff:
+                        continue
 
                 title = item["title"] or "Untitled"
                 doc_id = f"rss-{feed_name}-{title[:40]}"
