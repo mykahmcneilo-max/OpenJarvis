@@ -688,6 +688,24 @@ export function SettingsPage() {
             <SettingRow label="xAI Grok" description="Grok models (metered; blocked while free-only mode is on)">
               <ApiKeyInput keyName="XAI_API_KEY" placeholder="xai-..." />
             </SettingRow>
+            <SettingRow label="Groq" description="Fast Llama / Kimi K2 (free tier available)">
+              <ApiKeyInput keyName="GROQ_API_KEY" placeholder="gsk_..." />
+            </SettingRow>
+            <SettingRow label="Cerebras" description="Very fast Llama / Qwen (free tier available)">
+              <ApiKeyInput keyName="CEREBRAS_API_KEY" placeholder="csk-..." />
+            </SettingRow>
+            <SettingRow label="Mistral" description="Mistral Large / Codestral (free Experiment plan)">
+              <ApiKeyInput keyName="MISTRAL_API_KEY" placeholder="Mistral API key" />
+            </SettingRow>
+            <SettingRow label="Kimi (Moonshot)" description="Kimi K2 models">
+              <ApiKeyInput keyName="MOONSHOT_API_KEY" placeholder="sk-..." />
+            </SettingRow>
+            <SettingRow label="DeepSeek" description="DeepSeek V3 / R1 (prepaid credit only)">
+              <ApiKeyInput keyName="DEEPSEEK_API_KEY" placeholder="sk-..." />
+            </SettingRow>
+            <SettingRow label="GitHub Models" description="GPT-4.1, DeepSeek R1 and more with a GitHub token (free, rate-limited)">
+              <ApiKeyInput keyName="GITHUB_MODELS_TOKEN" placeholder="github_pat_..." />
+            </SettingRow>
           </Section>
 
           <Section title="Optional integrations">

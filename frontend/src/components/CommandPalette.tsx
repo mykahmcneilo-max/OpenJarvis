@@ -111,8 +111,24 @@ function SubscriptionModels({
     fetchProviders().then(setProviders).catch(() => setProviders([]));
   }, []);
   const subs = (providers ?? []).filter((p) => p.billing === 'subscription');
+  const usableCount = (providers ?? []).filter((p) => p.usable && p.billing !== 'local').length;
   return (
     <div>
+      <button
+        onClick={() => onSelect('jarvis-auto', 'auto')}
+        className="w-full text-left text-xs px-2 py-2 mb-2 rounded cursor-pointer"
+        style={{
+          border: '1px solid var(--color-border)',
+          background: selectedModel === 'jarvis-auto' ? 'var(--color-bg-tertiary)' : 'transparent',
+          color: 'var(--color-text)',
+        }}
+        title="Uses the best model you have access to and moves to the next one when its free credits or limits run out; local model last"
+      >
+        <span className="font-medium">Auto — best available</span>
+        <span style={{ color: 'var(--color-text-tertiary)' }}>
+          {' '}· {usableCount} cloud source{usableCount === 1 ? '' : 's'} ready, falls back to local
+        </span>
+      </button>
       <div className="text-[11px] mb-1 font-medium" style={{ color: 'var(--color-text-secondary)' }}>
         Your subscriptions (no API key, no extra billing)
       </div>

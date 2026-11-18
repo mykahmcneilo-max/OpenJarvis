@@ -174,11 +174,15 @@ async def _subscription_cli_completion(request_body, model: str):
         )
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    from openjarvis.server.cloud_router import AUTO_MODEL, LAST_AUTO_MODEL
+
+    answered = LAST_AUTO_MODEL["model"] if model == AUTO_MODEL else model
     return {
         "id": f"chatcmpl-{_uuid.uuid4().hex[:24]}",
         "object": "chat.completion",
         "created": int(_time.time()),
-        "model": model,
+        "model": answered,
+        "openjarvis": {"agent": "Jarvis", "model": answered},
         "choices": [
             {
                 "index": 0,
@@ -288,7 +292,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
     # Subscription CLIs (Claude Code / Codex) have no local engine behind
     # them: they always go through the cloud router, never the server agent.
-    subscription_cli = get_provider(model) in SUBSCRIPTION_PROVIDERS
+    subscription_cli = get_provider(model) in (SUBSCRIPTION_PROVIDERS | {"auto"})
     if subscription_cli and not request_body.stream:
         return await _subscription_cli_completion(request_body, model)
     use_server_agent = (

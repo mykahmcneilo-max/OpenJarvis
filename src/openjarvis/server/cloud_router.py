@@ -23,6 +23,16 @@ from openjarvis.core.types import Message
 
 _CLOUD_ENV_FILE = get_config_dir() / "cloud-keys.env"
 
+# Keys for the OpenAI-compatible providers (see OPENAI_COMPAT below).
+_COMPAT_KEY_NAMES = (
+    "GROQ_API_KEY",
+    "CEREBRAS_API_KEY",
+    "MISTRAL_API_KEY",
+    "MOONSHOT_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "GITHUB_MODELS_TOKEN",
+)
+
 _OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "chatgpt-")
 _ANTHROPIC_PREFIXES = ("claude-",)
 _GOOGLE_PREFIXES = ("gemini-",)
@@ -67,6 +77,7 @@ def _load_keys() -> dict[str, str]:
         "MINIMAX_API_KEY",
         "ATLASCLOUD_API_KEY",
         "XAI_API_KEY",
+        *_COMPAT_KEY_NAMES,
     ):
         val = os.environ.get(name)
         if val:
@@ -86,6 +97,7 @@ def _load_keys() -> dict[str, str]:
                 "MINIMAX_API_KEY",
                 "ATLASCLOUD_API_KEY",
                 "XAI_API_KEY",
+                *_COMPAT_KEY_NAMES,
             ):
                 if name not in keys:
                     value = vault.get_password("OpenJarvis Cloud Keys", name)
@@ -103,6 +115,89 @@ _CODEX_CLI_PREFIX = "codex-cli"
 _XAI_PREFIXES = ("grok-",)
 SUBSCRIPTION_PROVIDERS = {"claude_cli", "codex_cli"}
 _CLI_TIMEOUT_SECONDS = 300
+
+# OpenAI-compatible providers: id -> (model prefix, base URL, key name, label).
+# Model ids are "<prefix><provider model id>", e.g. "groq/llama-3.3-70b-versatile".
+OPENAI_COMPAT: dict[str, tuple[str, str, str, str]] = {
+    "groq": ("groq/", "https://api.groq.com/openai/v1", "GROQ_API_KEY", "Groq"),
+    "cerebras": (
+        "cerebras/",
+        "https://api.cerebras.ai/v1",
+        "CEREBRAS_API_KEY",
+        "Cerebras",
+    ),
+    "mistral": ("mistral/", "https://api.mistral.ai/v1", "MISTRAL_API_KEY", "Mistral"),
+    "moonshot": (
+        "kimi/",
+        "https://api.moonshot.ai/v1",
+        "MOONSHOT_API_KEY",
+        "Kimi (Moonshot)",
+    ),
+    "deepseek": (
+        "deepseek-api/",
+        "https://api.deepseek.com",
+        "DEEPSEEK_API_KEY",
+        "DeepSeek API",
+    ),
+    "github": (
+        "github/",
+        "https://models.github.ai/inference",
+        "GITHUB_MODELS_TOKEN",
+        "GitHub Models",
+    ),
+}
+
+# "jarvis-auto" walks this chain, best first, skipping models that aren't
+# usable and moving on when one fails (quota/credits/rate limit/outage).
+AUTO_MODEL = "jarvis-auto"
+DEFAULT_MODEL_CHAIN = [
+    "claude-code:opus",
+    "codex-cli",
+    "claude-code:sonnet",
+    "gemini-2.5-pro",
+    "grok-4",
+    "kimi/kimi-k2-0905-preview",
+    "deepseek-api/deepseek-chat",
+    "mistral/mistral-large-latest",
+    "groq/llama-3.3-70b-versatile",
+    "cerebras/llama-3.3-70b",
+    "github/openai/gpt-4.1",
+    "gemini-2.5-flash",
+    "openrouter/openrouter/free",
+]
+
+
+def _free_tier_providers() -> set[str]:
+    """Providers the user confirmed have NO billing attached (free tier only).
+
+    One provider id per line in ~/.openjarvis/free-tier-providers.txt. Only
+    these (plus subscriptions and OpenRouter free routes) pass free-only mode.
+    """
+    path = get_config_dir() / "free-tier-providers.txt"
+    try:
+        return {
+            line.strip()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        }
+    except OSError:
+        return set()
+
+
+def model_chain() -> list[str]:
+    """Ranked fallback chain (~/.openjarvis/model-chain.txt overrides)."""
+    path = get_config_dir() / "model-chain.txt"
+    try:
+        custom = [
+            line.strip()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        if custom:
+            return custom
+    except OSError:
+        pass
+    return list(DEFAULT_MODEL_CHAIN)
 
 
 def _cli_path(name: str) -> str | None:
@@ -140,6 +235,11 @@ def get_provider(model: str) -> str | None:
         (_CODEX_CLI_PREFIX + ":", _CODEX_CLI_PREFIX + "/")
     ):
         return "codex_cli"
+    if model == AUTO_MODEL:
+        return "auto"
+    for pid, (prefix, _base, _key, _label) in OPENAI_COMPAT.items():
+        if model.startswith(prefix):
+            return pid
     if any(model.startswith(p) for p in _XAI_PREFIXES):
         return "xai"
     # Bare GPT-OSS names and Ollama tags are local, despite the "gpt-" prefix.
@@ -527,6 +627,55 @@ async def _stream_cli(
         yield text.strip()
 
 
+def _usable_models() -> dict[str, bool]:
+    """provider id -> usable now (authorized and not blocked)."""
+    return {row["id"]: row["usable"] for row in provider_status()}
+
+
+async def _stream_auto(
+    messages: Sequence[Message], temperature: float, max_tokens: int
+) -> AsyncIterator[str]:
+    """Try the ranked chain; on failure before any output, use the next one.
+
+    Falls back to the local default model last, so a reply always comes.
+    The first chunk names the model that answered (``[via <model>]``) only
+    in logs; the UI gets it from response metadata.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    usable = _usable_models()
+    tried: list[str] = []
+    for candidate in model_chain():
+        provider = get_provider(candidate)
+        if provider is None or not usable.get(provider, False):
+            continue
+        tried.append(candidate)
+        produced = False
+        try:
+            async for token in stream_cloud(
+                candidate, messages, temperature, max_tokens
+            ):
+                produced = True
+                yield token
+            if produced:
+                LAST_AUTO_MODEL["model"] = candidate
+                return
+        except Exception as exc:
+            if produced:  # partial answer already sent; don't splice another
+                return
+            log.warning("jarvis-auto: %s failed (%s); trying next", candidate, exc)
+    local = os.environ.get("OPENJARVIS_LOCAL_FALLBACK_MODEL", "qwen3.5:9b")
+    log.warning("jarvis-auto: falling back to local %s after %s", local, tried)
+    LAST_AUTO_MODEL["model"] = local
+    async for token in stream_local(local, messages, temperature, max_tokens):
+        yield token
+
+
+# Which chain entry answered the most recent jarvis-auto request.
+LAST_AUTO_MODEL: dict[str, str] = {"model": ""}
+
+
 def provider_status() -> list[dict[str, Any]]:
     """Which providers are usable right now, and how they're paid for.
 
@@ -561,9 +710,28 @@ def provider_status() -> list[dict[str, Any]]:
         ("anthropic", "Claude API", "ANTHROPIC_API_KEY", ["claude-sonnet-4-5"]),
         ("openai", "OpenAI API", "OPENAI_API_KEY", ["gpt-5", "gpt-4.1"]),
         ("xai", "xAI Grok API", "XAI_API_KEY", ["grok-4", "grok-3-mini"]),
-        ("google", "Google Gemini API", "GEMINI_API_KEY", ["gemini-2.5-pro"]),
+        (
+            "google",
+            "Google Gemini API",
+            "GEMINI_API_KEY",
+            ["gemini-2.5-pro", "gemini-2.5-flash"],
+        ),
         ("openrouter", "OpenRouter", "OPENROUTER_API_KEY", ["openrouter/free"]),
     ]
+    compat_models = {
+        "groq": ["groq/llama-3.3-70b-versatile", "groq/moonshotai/kimi-k2-instruct"],
+        "cerebras": [
+            "cerebras/llama-3.3-70b",
+            "cerebras/qwen-3-235b-a22b-instruct-2507",
+        ],
+        "mistral": ["mistral/mistral-large-latest", "mistral/codestral-latest"],
+        "moonshot": ["kimi/kimi-k2-0905-preview"],
+        "deepseek": ["deepseek-api/deepseek-chat", "deepseek-api/deepseek-reasoner"],
+        "github": ["github/openai/gpt-4.1", "github/deepseek/DeepSeek-R1"],
+    }
+    for pid, (_prefix, _base, key, label) in OPENAI_COMPAT.items():
+        metered.append((pid, label, key, compat_models.get(pid, [])))
+    free_tier = _free_tier_providers()
     for pid, label, key, models in metered:
         has_key = bool(
             keys.get(key) or (pid == "google" and keys.get("GOOGLE_API_KEY"))
@@ -579,8 +747,12 @@ def provider_status() -> list[dict[str, Any]]:
             }
         )
     for row in rows:
+        row["free_tier_confirmed"] = row["id"] in free_tier
         blocked = (
-            free_only and row["billing"] == "metered_api" and row["id"] != "openrouter"
+            free_only
+            and row["billing"] == "metered_api"
+            and row["id"] != "openrouter"
+            and not row["free_tier_confirmed"]
         )
         row["blocked_by_free_only"] = blocked
         if not row["authorized"]:
@@ -589,9 +761,14 @@ def provider_status() -> list[dict[str, Any]]:
                     "Not installed" if not row.get("installed") else "Not signed in"
                 )
             else:
-                row["detail"] = f"Needs {row['key_name']} (metered, pay-per-use)"
+                row["detail"] = f"Needs {row['key_name']}"
         elif blocked:
-            row["detail"] = "Key found, but free-only mode blocks metered API use"
+            row["detail"] = (
+                "Key found, but free-only mode blocks it until you confirm the "
+                "account has no billing attached"
+            )
+        elif row["free_tier_confirmed"]:
+            row["detail"] = "Ready (free tier, no billing attached)"
         else:
             row["detail"] = "Ready"
         row["usable"] = row["authorized"] and not blocked
@@ -609,11 +786,16 @@ async def stream_cloud(
     if (get_config_dir() / "free-cloud-only").exists():
         # Subscription CLIs bill the user's existing plan, not a metered key,
         # so they stay allowed; every metered API route stays blocked.
-        free_route = provider in SUBSCRIPTION_PROVIDERS or (
-            provider == "openrouter"
-            and (
-                _openrouter_model_id(model).endswith(":free")
-                or _openrouter_model_id(model) == "openrouter/free"
+        free_route = (
+            provider in SUBSCRIPTION_PROVIDERS
+            or provider == "auto"  # each candidate is checked on its own
+            or provider in _free_tier_providers()
+            or (
+                provider == "openrouter"
+                and (
+                    _openrouter_model_id(model).endswith(":free")
+                    or _openrouter_model_id(model) == "openrouter/free"
+                )
             )
         )
         if not free_route:
@@ -623,8 +805,24 @@ async def stream_cloud(
                 "OpenRouter free model."
             )
 
-    if provider in SUBSCRIPTION_PROVIDERS:
+    if provider == "auto":
+        async for token in _stream_auto(messages, temperature, max_tokens):
+            yield token
+
+    elif provider in SUBSCRIPTION_PROVIDERS:
         async for token in _stream_cli(provider, model, messages):
+            yield token
+
+    elif provider in OPENAI_COMPAT:
+        prefix, base_url, key_name, _label = OPENAI_COMPAT[provider]
+        async for token in _stream_openai(
+            model[len(prefix) :],
+            messages,
+            temperature,
+            max_tokens,
+            base_url=base_url,
+            api_key_name=key_name,
+        ):
             yield token
 
     elif provider == "xai":
