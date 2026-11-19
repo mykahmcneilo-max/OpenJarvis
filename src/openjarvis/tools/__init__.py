@@ -22,6 +22,7 @@ _BUILTIN_TOOL_MODULES = (
     "weather",
     "free_weather",
     "calendar_add",
+    "assignments",
     "fx_macro",
     "code_interpreter",
     "code_interpreter_docker",
