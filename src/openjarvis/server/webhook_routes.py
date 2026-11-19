@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -105,19 +106,54 @@ def _validate_twilio_signature(
         return False
 
 
+_SOURCES_TAIL = re.compile(
+    r"(?:^|(?<=[.!?])[ \t]+|\n)[ \t]*sources?\s*:[\s\S]*\Z", re.I | re.M
+)
+_SIGN_OFF = re.compile(
+    r"^(?:let me know (?:if|what|whether|when you)|feel free to"
+    r"|hope (?:this|that) helps"
+    r"|if you (?:need|want|have) (?:anything|any|more)|is there anything else"
+    r"|happy to help)",
+    re.I,
+)
+_OPENER = re.compile(
+    r"^(?:(?:certainly|sure|absolutely|of course|great question)[!.,]*\s+"
+    r"|i'?d be (?:happy|glad) to help(?: with that)?[!.]*\s+)+",
+    re.I,
+)
+
+
+def _strip_bot_habits(text: str) -> str:
+    """Drop the assistant habits SOUL.md bans but models keep doing anyway.
+
+    A trailing "Sources:" list, closing "Let me know if..." lines and
+    "Certainly!" openers. Nothing is removed if it would leave the reply empty.
+    """
+    out = _SOURCES_TAIL.sub("", text).rstrip() or text
+
+    while True:
+        stripped = out.rstrip()
+        cut = max(stripped.rfind("\n\n"), *(stripped.rfind(p + " ") for p in ".!?"))
+        head, tail = stripped[: cut + 1].rstrip(), stripped[cut + 1 :].strip()
+        if cut < 0 or not head or not _SIGN_OFF.match(tail):
+            break
+        out = head
+
+    opened = _OPENER.sub("", out, count=1)
+    return opened if opened.strip() else out
+
+
 def _format_for_sms(text: str) -> str:
     """Strip markdown/LaTeX formatting for clean iMessage/SMS display."""
-    import re
-
+    # Code blocks first: keep the code, drop the fences.
+    text = re.sub(r"```[^\n`]*\n?([\s\S]*?)```", r"\1", text)
     # Remove markdown headers (## Header -> Header)
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-    # Remove bold/italic markers
-    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
-    text = re.sub(r"_{1,3}([^_]+)_{1,3}", r"\1", text)
+    # Remove bold/italic markers, but not inside words (5*3*2, hive_art_social)
+    text = re.sub(r"(?<!\w)\*{1,3}([^*\n]+?)\*{1,3}(?!\w)", r"\1", text)
+    text = re.sub(r"(?<!\w)_{1,3}([^_\n]+?)_{1,3}(?!\w)", r"\1", text)
     # Remove inline code backticks
     text = re.sub(r"`([^`]+)`", r"\1", text)
-    # Remove code blocks
-    text = re.sub(r"```[\s\S]*?```", "", text)
     # Remove LaTeX
     text = re.sub(r"\$\$[\s\S]*?\$\$", "", text)
     text = re.sub(r"\$[^$]+\$", "", text)
@@ -129,7 +165,7 @@ def _format_for_sms(text: str) -> str:
     text = re.sub(r"^[\s]*[-*]\s+", "- ", text, flags=re.MULTILINE)
     # Collapse excessive blank lines
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    return _strip_bot_habits(text.strip()).strip()
 
 
 _MAX_BUBBLES = 5
